@@ -253,7 +253,7 @@ MyAIDemo2/
     │           │   ├── ChatController.java     # 对话 API
     │           │   └── DocumentController.java # 文档管理 API
     │           └── service/
-    │               ├── DocumentService.java       # 文档摄入服务
+    │               ├── DocumentService.java       # 文档摄入/浏览/列表服务
     │               ├── EmbeddingStoreManager.java # 向量存储管理
     │               └── RAGService.java            # RAG 核心服务
     └── resources/

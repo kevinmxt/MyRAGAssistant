@@ -16,7 +16,10 @@ import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 文档摄入服务，负责从目录加载多模态文档并进行分块和向量化。
@@ -140,6 +143,103 @@ public class DocumentService {
         if (lower.endsWith(".xlsx")) return "XLSX";
         if (lower.endsWith(".pptx")) return "PPTX";
         return "Unknown";
+    }
+
+    /**
+     * 列出已索引的文档，按文件名分组聚合。
+     *
+     * @return 文档摘要列表
+     */
+    public List<DocumentSummary> listDocuments() {
+        List<EmbeddingStoreManager.StoredEntry> entries = storeManager.listDocuments();
+
+        Map<String, List<EmbeddingStoreManager.StoredEntry>> grouped = entries.stream()
+                .collect(Collectors.groupingBy(e -> {
+                    Map<String, Object> meta = e.getMetadata();
+                    String fileName = meta != null ? (String) meta.get("file_name") : null;
+                    return fileName != null ? fileName : "unknown";
+                }));
+
+        List<DocumentSummary> documents = new ArrayList<>();
+        for (Map.Entry<String, List<EmbeddingStoreManager.StoredEntry>> group : grouped.entrySet()) {
+            Map<String, Object> meta = group.getValue().get(0).getMetadata();
+            String dir = meta != null ? (String) meta.get("absolute_directory_path") : null;
+            String fileType = meta != null ? (String) meta.get("file_type") : null;
+            documents.add(new DocumentSummary(
+                    group.getKey(),
+                    group.getValue().size(),
+                    dir != null ? dir : "",
+                    fileType != null ? fileType : ""));
+        }
+        return documents;
+    }
+
+    /**
+     * 浏览文件系统目录，返回子目录列表。
+     *
+     * @param path 目录路径，空字符串表示查询根目录
+     * @return 浏览结果
+     */
+    public BrowseResult browseDirectory(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            return browseRoot();
+        }
+
+        File dir = new File(path.trim());
+        if (!dir.exists() || !dir.isDirectory()) {
+            throw new IllegalArgumentException("Directory not found: " + path);
+        }
+
+        String parentPath = dir.getParent();
+        File[] subDirs = dir.listFiles(File::isDirectory);
+        List<String> directories = new ArrayList<>();
+        if (subDirs != null) {
+            for (File sub : subDirs) {
+                directories.add(sub.getAbsolutePath());
+            }
+            directories.sort(String.CASE_INSENSITIVE_ORDER);
+        }
+
+        return new BrowseResult(dir.getAbsolutePath(), parentPath, directories);
+    }
+
+    private BrowseResult browseRoot() {
+        List<String> roots = new ArrayList<>();
+        File[] rootDirs = File.listRoots();
+        if (rootDirs != null) {
+            for (File root : rootDirs) {
+                roots.add(root.getAbsolutePath());
+            }
+        }
+        return new BrowseResult("", null, roots);
+    }
+
+    /** 已索引文档摘要。 */
+    public static class DocumentSummary {
+        public String fileName;
+        public int segmentCount;
+        public String directory;
+        public String fileType;
+
+        public DocumentSummary(String fileName, int segmentCount, String directory, String fileType) {
+            this.fileName = fileName;
+            this.segmentCount = segmentCount;
+            this.directory = directory;
+            this.fileType = fileType;
+        }
+    }
+
+    /** 目录浏览结果。 */
+    public static class BrowseResult {
+        public String currentPath;
+        public String parentPath;
+        public List<String> directories;
+
+        public BrowseResult(String currentPath, String parentPath, List<String> directories) {
+            this.currentPath = currentPath;
+            this.parentPath = parentPath;
+            this.directories = directories;
+        }
     }
 
     /**

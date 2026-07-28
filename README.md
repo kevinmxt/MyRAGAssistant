@@ -256,6 +256,14 @@ MyAIDemo2/
     │               ├── DocumentService.java       # 文档摄入/浏览/列表服务
     │               ├── EmbeddingStoreManager.java # 向量存储管理
     │               └── RAGService.java            # RAG 核心服务
+    └── test/
+        └── java/me/maxt/rag/web/
+            ├── config/
+            │   └── AppConfigTest.java              # 配置测试
+            └── service/
+                ├── EmbeddingStoreManagerTest.java   # 存储管理测试
+                ├── DocumentServiceTest.java         # 文档服务测试
+                └── RAGServiceTest.java              # RAG 服务测试
     └── resources/
         └── webapp/
             ├── index.html           # 前端页面

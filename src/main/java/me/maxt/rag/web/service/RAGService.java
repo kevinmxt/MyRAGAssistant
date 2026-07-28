@@ -11,7 +11,7 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
-import me.maxt.rag.web.config.AppConfig;
+import me.maxt.rag.web.config.RetrievalConfig;
 import shared.Assistant;
 
 import java.util.ArrayList;
@@ -23,18 +23,18 @@ import java.util.List;
  * <p>主要功能：</p>
  * <ol>
  *   <li>使用本地 ONNX 嵌入模型（BgeSmallEnV15）将查询向量化</li>
- *   <li>通过 {@link EmbeddingStoreContentRetriever} 从向量库中检索最相关的文档片段</li>
+ *   <li>通过内容检索器从向量库中检索最相关的文档片段</li>
  *   <li>将检索到的上下文片段注入 LLM 对话，生成增强后的答案</li>
  * </ol>
  *
- * <p>对话记忆基于 {@link MessageWindowChatMemory}，窗口大小由 {@link AppConfig#getMemorySize()} 配置。</p>
+ * <p>对话记忆基于 {@link MessageWindowChatMemory}，窗口大小由 {@link RetrievalConfig#getMemorySize()} 配置。</p>
  *
  * @author maxt
  * @since 1.0
  */
 public class RAGService {
 
-    private final AppConfig config;
+    private final RetrievalConfig config;
     private final EmbeddingStoreManager storeManager;
     private final EmbeddingModel embeddingModel;
     private final ChatModel chatModel;
@@ -44,12 +44,12 @@ public class RAGService {
     /**
      * 创建 RAG 服务实例。
      *
-     * @param config       应用配置
+     * @param config       检索配置
      * @param storeManager 嵌入存储管理器
      * @param embeddingModel 嵌入模型（共享实例）
      * @param chatModel    聊天模型（共享实例）
      */
-    public RAGService(AppConfig config, EmbeddingStoreManager storeManager,
+    public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
                       EmbeddingModel embeddingModel, ChatModel chatModel) {
         this.config = config;
         this.storeManager = storeManager;

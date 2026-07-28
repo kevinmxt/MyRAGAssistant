@@ -243,7 +243,11 @@ MyAIDemo2/
     │       └── web/
     │           ├── App.java         # 应用入口
     │           ├── config/
-    │           │   └── AppConfig.java          # 配置管理
+    │           │   ├── AppConfig.java          # 配置实现
+│           │   ├── LlmConfig.java           # LLM 配置接口
+│           │   ├── RetrievalConfig.java     # 检索配置接口
+│           │   ├── DocumentConfig.java      # 文档配置接口
+│           │   └── ServerConfig.java        # 服务器配置接口
     │           ├── controller/
     │           │   ├── ChatController.java     # 对话 API
     │           │   └── DocumentController.java # 文档管理 API

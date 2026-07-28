@@ -5,8 +5,6 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.embedding.onnx.bgesmallenv15q.BgeSmallEnV15QuantizedEmbeddingModel;
-import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
@@ -18,7 +16,6 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import me.maxt.rag.web.config.AppConfig;
 import shared.Assistant;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,24 +44,19 @@ public class RAGService {
     private final Assistant assistant;
 
     /**
-     * 创建 RAG 服务实例，初始化嵌入模型、聊天模型、内容检索器和 AI 助手。
+     * 创建 RAG 服务实例。
      *
      * @param config       应用配置
      * @param storeManager 嵌入存储管理器
+     * @param embeddingModel 嵌入模型（共享实例）
+     * @param chatModel    聊天模型（共享实例）
      */
-    public RAGService(AppConfig config, EmbeddingStoreManager storeManager) {
+    public RAGService(AppConfig config, EmbeddingStoreManager storeManager,
+                      EmbeddingModel embeddingModel, ChatModel chatModel) {
         this.config = config;
         this.storeManager = storeManager;
-        this.embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
-
-        this.chatModel = OpenAiChatModel.builder()
-                .baseUrl(config.getBaseUrl())
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelName())
-                .temperature(config.getTemperature())
-                .maxTokens(config.getMaxTokens())
-                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
-                .build();
+        this.embeddingModel = embeddingModel;
+        this.chatModel = chatModel;
 
         this.contentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(storeManager.getStore())

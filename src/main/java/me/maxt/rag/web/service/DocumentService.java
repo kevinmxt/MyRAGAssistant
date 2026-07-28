@@ -9,7 +9,6 @@ import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.embedding.onnx.bgesmallenv15q.BgeSmallEnV15QuantizedEmbeddingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,14 +40,15 @@ public class DocumentService {
      * 创建文档服务实例。
      *
      * @param storeManager       嵌入存储管理器
+     * @param embeddingModel     嵌入模型（共享实例）
      * @param chunkSize          文档分块大小（字符数）
      * @param chunkOverlap       分块重叠大小（字符数）
      * @param supportedExtensions 支持的文件扩展名列表，如 {@code [".txt", ".pdf", ".docx"]}
      */
-    public DocumentService(EmbeddingStoreManager storeManager, int chunkSize, int chunkOverlap,
-                           List<String> supportedExtensions) {
+    public DocumentService(EmbeddingStoreManager storeManager, EmbeddingModel embeddingModel,
+                           int chunkSize, int chunkOverlap, List<String> supportedExtensions) {
         this.storeManager = storeManager;
-        this.embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
+        this.embeddingModel = embeddingModel;
         this.chunkSize = chunkSize;
         this.chunkOverlap = chunkOverlap;
         this.supportedExtensions = supportedExtensions;

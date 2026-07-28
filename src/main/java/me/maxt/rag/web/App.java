@@ -1,5 +1,9 @@
 package me.maxt.rag.web;
 
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.embedding.onnx.bgesmallenv15q.BgeSmallEnV15QuantizedEmbeddingModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import me.maxt.rag.web.config.AppConfig;
@@ -11,6 +15,7 @@ import me.maxt.rag.web.service.RAGService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -36,11 +41,22 @@ public class App {
         AppConfig config = AppConfig.load();
         log.info("Starting RAG Web Application on port {}", config.getPort());
 
+        // Initialize shared dependencies
+        EmbeddingModel embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
+        ChatModel chatModel = OpenAiChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelName())
+                .temperature(config.getTemperature())
+                .maxTokens(config.getMaxTokens())
+                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                .build();
+
         // Initialize services
         EmbeddingStoreManager storeManager = new EmbeddingStoreManager(config.getStoreFilePath());
-        RAGService ragService = new RAGService(config, storeManager);
+        RAGService ragService = new RAGService(config, storeManager, embeddingModel, chatModel);
         DocumentService documentService = new DocumentService(
-                storeManager, config.getChunkSize(), config.getChunkOverlap(),
+                storeManager, embeddingModel, config.getChunkSize(), config.getChunkOverlap(),
                 config.getSupportedFileExtensions());
 
         // Initialize controllers

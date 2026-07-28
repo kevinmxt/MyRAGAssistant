@@ -145,12 +145,23 @@ public class EmbeddingStoreManager {
     }
 
     /**
-     * 获取底层的 {@link InMemoryEmbeddingStore} 实例，供 LangChain4j 的 RAG 组件使用。
+     * 基于内部向量存储创建内容检索器。
      *
-     * @return 内存向量存储实例
+     * @param embeddingModel 嵌入模型
+     * @param maxResults 最大返回结果数
+     * @param minScore 最低相似度阈值
+     * @return 配置好的内容检索器
      */
-    public InMemoryEmbeddingStore<TextSegment> getStore() {
-        return embeddingStore;
+    public dev.langchain4j.rag.content.retriever.ContentRetriever createContentRetriever(
+            dev.langchain4j.model.embedding.EmbeddingModel embeddingModel,
+            int maxResults,
+            double minScore) {
+        return dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever.builder()
+                .embeddingStore(embeddingStore)
+                .embeddingModel(embeddingModel)
+                .maxResults(maxResults)
+                .minScore(minScore)
+                .build();
     }
 
     /**
@@ -201,27 +212,20 @@ public class EmbeddingStoreManager {
      * 持久化存储条目 DTO，包含向量、文本和元数据。
      */
     public static class StoredEntry {
-        /** 嵌入向量数组 */
-        public float[] embedding;
-        /** 文本内容 */
-        public String text;
-        /** 元数据（如文件名、目录路径等） */
-        public Map<String, Object> metadata;
+        private float[] embedding;
+        private String text;
+        private Map<String, Object> metadata;
 
-        /** 默认构造函数（用于 JSON 反序列化）。 */
         public StoredEntry() {}
 
-        /**
-         * 构造存储条目。
-         *
-         * @param embedding 嵌入向量数组
-         * @param text 文本内容
-         * @param metadata 元数据映射
-         */
         public StoredEntry(float[] embedding, String text, Map<String, Object> metadata) {
             this.embedding = embedding;
             this.text = text;
             this.metadata = metadata;
         }
+
+        public float[] getEmbedding() { return embedding; }
+        public String getText() { return text; }
+        public Map<String, Object> getMetadata() { return metadata; }
     }
 }

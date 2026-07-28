@@ -83,8 +83,9 @@ public class DocumentController {
             // Group by file name to produce document list
             Map<String, List<EmbeddingStoreManager.StoredEntry>> grouped = entries.stream()
                     .collect(Collectors.groupingBy(e -> {
-                        String fileName = e.metadata != null ?
-                                (String) e.metadata.get("file_name") : null;
+                        Map<String, Object> meta = e.getMetadata();
+                        String fileName = meta != null ?
+                                (String) meta.get("file_name") : null;
                         return fileName != null ? fileName : "unknown";
                     }));
 
@@ -95,7 +96,7 @@ public class DocumentController {
                 doc.put("segmentCount", group.getValue().size());
 
                 // Get directory and file type from metadata of first entry
-                Map<String, Object> meta = group.getValue().get(0).metadata;
+                Map<String, Object> meta = group.getValue().get(0).getMetadata();
                 String dir = meta != null ? (String) meta.get("absolute_directory_path") : null;
                 doc.put("directory", dir != null ? dir : "");
 

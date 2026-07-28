@@ -7,8 +7,6 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
-import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
-import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
@@ -58,12 +56,8 @@ public class RAGService {
         this.embeddingModel = embeddingModel;
         this.chatModel = chatModel;
 
-        this.contentRetriever = EmbeddingStoreContentRetriever.builder()
-                .embeddingStore(storeManager.getStore())
-                .embeddingModel(embeddingModel)
-                .maxResults(config.getMaxResults())
-                .minScore(config.getMinScore())
-                .build();
+        this.contentRetriever = storeManager.createContentRetriever(
+                embeddingModel, config.getMaxResults(), config.getMinScore());
 
         this.assistant = AiServices.builder(Assistant.class)
                 .chatModel(chatModel)

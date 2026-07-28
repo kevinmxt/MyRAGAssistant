@@ -241,7 +241,8 @@ MyAIDemo2/
     │       ├── Easy_RAG_Example2.java
     │       ├── Naive_RAG_Example.java
     │       └── web/
-    │           ├── App.java         # 应用入口
+    │           ├── App.java            # 应用入口（薄胶水层）
+│           ├── WebApplication.java  # 启动组装工厂
     │           ├── config/
     │           │   ├── AppConfig.java          # 配置实现
 │           │   ├── LlmConfig.java           # LLM 配置接口

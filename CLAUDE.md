@@ -18,3 +18,4 @@ Issues 在 GitHub Issues 中管理，使用 `gh` CLI 操作。详见 `docs/agent
 - **共享资源**：ONNX 嵌入模型全局只加载一次，避免多实例浪费内存。
 - **EmbeddingStoreManager**：内部 `InMemoryEmbeddingStore` 完全隐藏，外部只通过 `search()`、`createContentRetriever()` 等接口交互。`StoredEntry` 字段 private。
 - **配置接口**：`AppConfig` 拆分为 `LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig` 四个聚焦接口。每个 consumer 只依赖它需要的接口。
+- **启动组装**：`WebApplication` 封装所有依赖创建和路由注册逻辑，`App.main()` 缩减为 5 行胶水代码。wiring 和运行时之间有清晰的 seam。

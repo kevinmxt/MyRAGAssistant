@@ -15,6 +15,8 @@
 | LLM | DeepSeek v4-flash（OpenAI 兼容 API） |
 | 嵌入模型 | BgeSmallEnV15（本地 ONNX 推理，无需 GPU） |
 | 文档解析 | Apache Tika 3.x（支持 PDF/DOCX/PNG 等多模态） |
+| 文档切分 | flexmark-java + 自适应混合策略（结构/语义/智能体） |
+| Markdown 转换 | Pandoc（可选）+ Tika fallback |
 | 向量存储 | 内存 + JSON 文件持久化 |
 | 前端 | 纯 HTML/CSS/JS（SPA） |
 | 打包 | Maven Shade Plugin（Fat JAR） |
@@ -23,7 +25,8 @@
 
 - **多模态文档支持** — TXT、PDF、DOCX、DOC、PNG、JPG、Markdown、HTML、CSV、JSON、XLSX、PPTX
 - **目录浏览选择** — Web 界面内置目录浏览器，可视化选择知识库目录
-- **自动分块与向量化** — 文档自动递归分块，本地 ONNX 模型生成嵌入向量
+- **自适应文档切分** — 根据文档结构、大小、类型自动选择最优切分策略（结构/语义/智能体），提升检索片段质量
+- **自动向量化** — 本地 ONNX 模型生成嵌入向量，支持批量处理
 - **向量数据持久化** — 向量和元数据以 JSON 格式原子写入磁盘，重启后自动恢复
 - **RAG 智能问答** — 基于检索增强生成的智能问答，答案附带参考来源
 - **可配置参数** — 通过 config.json 和环境变量灵活配置所有参数
@@ -36,6 +39,7 @@
 - **JDK 17+**
 - **Maven 3.6+**
 - （可选）**Tesseract OCR** — 如需从 PNG/JPG 等图像中提取文字，需要系统安装 Tesseract
+- （可选）**Pandoc** — 如需高质量 PDF/DOCX 转 Markdown，建议安装 Pandoc
 
 ## 快速开始
 
@@ -54,7 +58,13 @@
     "dir": "./documents",
     "chunkSize": 300,
     "chunkOverlap": 0,
-    "supportedExtensions": [".txt", ".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".md", ".html", ".csv", ".json", ".xlsx", ".pptx"]
+    "supportedExtensions": [".txt", ".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".md", ".html", ".csv", ".json", ".xlsx", ".pptx"],
+    "chunking": {
+      "mode": "auto",
+      "semanticThreshold": 0.6,
+      "enableAgentRefiner": false,
+      "maxChunkSize": 2000
+    }
   }
 }
 ```
@@ -112,6 +122,10 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `document.chunkSize` | number | `300` | 分块大小（字符） |
 | `document.chunkOverlap` | number | `0` | 分块重叠大小 |
 | `document.supportedExtensions` | array/string | 13种格式 | 支持的文件扩展名 |
+| `document.chunking.mode` | string | `"auto"` | 切分模式：`auto`/`structure`/`semantic`/`recursive` |
+| `document.chunking.semanticThreshold` | number | `0.6` | 语义断点相似度阈值 (0~1) |
+| `document.chunking.enableAgentRefiner` | boolean | `false` | 是否启用 LLM 精炼切分 |
+| `document.chunking.maxChunkSize` | number | `2000` | 切分上限（字符），超限回退 |
 | `chat.memorySize` | number | `10` | 对话记忆窗口（消息数） |
 | `server.port` | number | `8080` | HTTP 服务端口 |
 | `store.filePath` | string | `"./data/embedding-store.json"` | 向量存储文件 |
@@ -136,6 +150,10 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `RAG_DOCUMENT_DIR` | `document.dir` |
 | `RAG_STORE_PATH` | `store.filePath` |
 | `RAG_SUPPORTED_EXTENSIONS` | `document.supportedExtensions`（逗号分隔） |
+| `RAG_CHUNKING_MODE` | `document.chunking.mode` |
+| `RAG_CHUNKING_SEMANTIC_THRESHOLD` | `document.chunking.semanticThreshold` |
+| `RAG_CHUNKING_AGENT_REFINER` | `document.chunking.enableAgentRefiner` |
+| `RAG_CHUNKING_MAX_SIZE` | `document.chunking.maxChunkSize` |
 
 ## API 文档
 
@@ -255,15 +273,43 @@ MyAIDemo2/
     │           └── service/
     │               ├── DocumentService.java       # 文档摄入/浏览/列表服务
     │               ├── EmbeddingStoreManager.java # 向量存储管理
-    │               └── RAGService.java            # RAG 核心服务
+    │               ├── RAGService.java            # RAG 核心服务
+    │               └── chunking/
+    │                   ├── ChunkingPipeline.java   # 切分管线编排
+    │                   ├── DocStructure.java等     # 数据结构
+    │                   ├── analyzer/
+    │                   │   └── StructureAnalyzer.java  # flexmark 结构分析
+    │                   ├── classifier/
+    │                   │   └── SplitClassifier.java    # 策略选择器
+    │                   ├── converter/
+    │                   │   └── MarkdownConverter.java  # Pandoc+Tika 转换
+    │                   ├── splitter/
+    │                   │   ├── SplitStrategy.java      # 策略接口
+    │                   │   ├── StructureSplitter.java  # 结构切分
+    │                   │   ├── SemanticSplitter.java   # 语义切分
+    │                   │   └── AgentRefiner.java       # LLM 精炼
+    │                   └── evaluator/
+    │                       └── ChunkEvaluator.java     # 质量评估
     └── test/
         └── java/me/maxt/rag/web/
             ├── config/
-            │   └── AppConfigTest.java              # 配置测试
-            └── service/
-                ├── EmbeddingStoreManagerTest.java   # 存储管理测试
-                ├── DocumentServiceTest.java         # 文档服务测试
-                └── RAGServiceTest.java              # RAG 服务测试
+            │   └── AppConfigTest.java                 # 配置测试
+            ├── service/
+            │   ├── EmbeddingStoreManagerTest.java      # 存储管理测试
+            │   ├── DocumentServiceTest.java            # 文档服务测试
+            │   ├── RAGServiceTest.java                 # RAG 服务测试
+            │   └── chunking/
+            │       ├── ChunkingPipelineTest.java       # 管线测试
+            │       ├── analyzer/
+            │       │   └── StructureAnalyzerTest.java  # 结构分析测试
+            │       ├── classifier/
+            │       │   └── SplitClassifierTest.java    # 分类器测试
+            │       ├── converter/
+            │       │   └── MarkdownConverterTest.java  # 转换器测试
+            │       └── splitter/
+            │           ├── StructureSplitterTest.java  # 结构切分测试
+            │           ├── SemanticSplitterTest.java   # 语义切分测试
+            │           └── AgentRefinerTest.java       # 精炼器测试
     └── resources/
         └── webapp/
             ├── index.html           # 前端页面
@@ -278,3 +324,4 @@ MyAIDemo2/
 3. **内存使用**：向量数据存储在内存中，同时持久化到 JSON 文件。大规模文档集（10万+ 片段）建议迁移到外部向量数据库。
 4. **API Key**：默认 API Key 为 `"demo"`，生产环境请通过环境变量 `RAG_LLM_API_KEY` 配置真实 Key。
 5. **端口冲突**：默认端口 8080，可通过 `config.json` 或 `RAG_SERVER_PORT` 环境变量修改。
+6. **Pandoc 支持**：安装 Pandoc 后，PDF/DOCX 文档会自动转为 Markdown 再切分，保留标题、代码块等结构信息。未安装时自动降级到 Tika 纯文本提取。Windows 上可通过 `winget install Pandoc.Pandoc` 或 [pandoc.org](https://pandoc.org/installing.html) 安装。

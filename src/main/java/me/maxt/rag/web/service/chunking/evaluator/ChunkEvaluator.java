@@ -30,7 +30,7 @@ public class ChunkEvaluator {
         double sizeScore = evaluateSizeConsistency(chunks);
         double boundaryScore = evaluateBoundaryAlignment(chunks, structure);
 
-        log.debug("切分质量评估 — 大小一致性: {:.2f}, 边界对齐: {:.2f}", sizeScore, boundaryScore);
+        log.debug("切分质量评估 — 大小一致性: {}, 边界对齐: {}", String.format("%.2f", sizeScore), String.format("%.2f", boundaryScore));
         return (sizeScore + boundaryScore) / 2.0;
     }
 

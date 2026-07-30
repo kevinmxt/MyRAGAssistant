@@ -103,7 +103,7 @@ public class ChunkingPipeline {
         // Step 6: 质量评估
         try {
             double score = evaluator.evaluate(segments, structure);
-            log.debug("切分质量评分: {:.2f} (文件: {}, 分段数: {})", score, filePath.getFileName(), segments.size());
+            log.debug("切分质量评分: {} (文件: {}, 分段数: {})", String.format("%.2f", score), filePath.getFileName(), segments.size());
         } catch (Exception e) {
             log.debug("质量评估跳过: {}", e.getMessage());
         }

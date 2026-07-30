@@ -2,7 +2,7 @@ package me.maxt.rag.web;
 
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.embedding.onnx.bgesmallenv15q.BgeSmallEnV15QuantizedEmbeddingModel;
+import dev.langchain4j.model.embedding.onnx.bgesmallzhv15q.BgeSmallZhV15QuantizedEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
@@ -44,7 +44,7 @@ public class WebApplication {
         this.config = config;
 
         // 共享依赖
-        this.embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
+        this.embeddingModel = new BgeSmallZhV15QuantizedEmbeddingModel();
         this.chatModel = OpenAiChatModel.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())

@@ -72,7 +72,7 @@
 
     <dependency>
       <groupId>dev.langchain4j</groupId>
-      <artifactId>langchain4j-embeddings-bge-small-en-v15-q</artifactId>
+      <artifactId>langchain4j-embeddings-bge-small-zh-v15-q</artifactId>
       <version>1.12.1-beta21</version>
     </dependency>
 

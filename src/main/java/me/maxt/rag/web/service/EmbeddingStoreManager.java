@@ -145,6 +145,17 @@ public class EmbeddingStoreManager {
     }
 
     /**
+     * 清空向量存储（包括内存索引和持久化文件）。
+     * 供维度不兼容或手动重置场景使用。
+     */
+    public synchronized void clear() {
+        entries.clear();
+        // 重新创建 InMemoryEmbeddingStore（langchain4j 不支持直接清空）
+        persist();
+        log.info("Embedding store cleared.");
+    }
+
+    /**
      * 基于内部向量存储创建内容检索器。
      *
      * @param embeddingModel 嵌入模型

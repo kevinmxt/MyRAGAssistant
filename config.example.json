@@ -26,5 +26,11 @@
   },
   "store": {
     "filePath": "./data/embedding-store.json"
+  },
+  "queryEnhancement": {
+    "enabled": true,
+    "defaultMode": "auto",
+    "rrfK": 60,
+    "hydeMaxTokens": 200
   }
 }

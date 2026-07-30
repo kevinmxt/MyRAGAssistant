@@ -25,6 +25,8 @@ import me.maxt.rag.web.service.vector.HyDEGenerator;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import me.maxt.rag.web.service.vector.QueryRewriter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.time.Duration;
 import java.util.Map;
@@ -34,6 +36,8 @@ import java.util.Map;
  * App.main() 只保留薄胶水层。
  */
 public class WebApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(WebApplication.class);
 
     private final AppConfig config;
     private final EmbeddingModel embeddingModel;
@@ -60,6 +64,18 @@ public class WebApplication {
 
         // 服务层
         this.storeManager = new EmbeddingStoreManager(config.getStoreFilePath());
+
+        // 检测向量维度不兼容：旧 EN 模型 384 → 新 ZH 模型 512
+        // 如果 store 中有旧数据且维度不匹配，自动清空
+        if (storeManager.getEntryCount() > 0) {
+            int newDim = embeddingModel.embed("test").content().dimension();
+            EmbeddingStoreManager.StoredEntry firstEntry = storeManager.listDocuments().get(0);
+            int oldDim = firstEntry.getEmbedding().length;
+            if (oldDim != newDim) {
+                log.warn("Vector dimension mismatch: old={}, new={}. Clearing store...", oldDim, newDim);
+                storeManager.clear();
+            }
+        }
 
         // Chunking 管线
         MarkdownConverter markdownConverter = new MarkdownConverter();

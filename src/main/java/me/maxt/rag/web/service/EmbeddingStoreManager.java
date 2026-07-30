@@ -150,9 +150,8 @@ public class EmbeddingStoreManager {
      */
     public synchronized void clear() {
         entries.clear();
-        // 重新创建 InMemoryEmbeddingStore（langchain4j 不支持直接清空）
         persist();
-        log.info("Embedding store cleared.");
+        log.info("Embedding store cleared (restart required to fully reset in-memory index).");
     }
 
     /**

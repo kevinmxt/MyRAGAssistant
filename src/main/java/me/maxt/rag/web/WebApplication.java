@@ -28,6 +28,10 @@ import me.maxt.rag.web.service.vector.QueryRewriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
 
@@ -62,20 +66,34 @@ public class WebApplication {
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .build();
 
-        // 服务层
-        this.storeManager = new EmbeddingStoreManager(config.getStoreFilePath());
-
         // 检测向量维度不兼容：旧 EN 模型 384 → 新 ZH 模型 512
-        // 如果 store 中有旧数据且维度不匹配，自动清空
-        if (storeManager.getEntryCount() > 0) {
-            int newDim = embeddingModel.embed("test").content().dimension();
-            EmbeddingStoreManager.StoredEntry firstEntry = storeManager.listDocuments().get(0);
-            int oldDim = firstEntry.getEmbedding().length;
-            if (oldDim != newDim) {
-                log.warn("Vector dimension mismatch: old={}, new={}. Clearing store...", oldDim, newDim);
-                storeManager.clear();
+        // 在创建 storeManager 之前检查，避免旧数据被加载到内存
+        Path storePath = Paths.get(config.getStoreFilePath());
+        if (Files.exists(storePath)) {
+            try {
+                int newDim = embeddingModel.embed("test").content().dimension();
+                String content = new String(Files.readAllBytes(storePath));
+                // 查找第一个 embedding 数组并计算其长度
+                int embStart = content.indexOf("\"embedding\"");
+                if (embStart >= 0) {
+                    int arrStart = content.indexOf("[", embStart);
+                    int arrEnd = content.indexOf("]", arrStart);
+                    if (arrStart >= 0 && arrEnd >= 0) {
+                        String arr = content.substring(arrStart + 1, arrEnd);
+                        int oldDim = arr.split(",").length;
+                        if (oldDim != newDim) {
+                            log.warn("Vector dimension mismatch: old={}, new={}. Deleting old store...", oldDim, newDim);
+                            Files.delete(storePath);
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                log.warn("Failed to check store dimension, keeping existing file", e);
             }
         }
+
+        // 服务层
+        this.storeManager = new EmbeddingStoreManager(config.getStoreFilePath());
 
         // Chunking 管线
         MarkdownConverter markdownConverter = new MarkdownConverter();

@@ -17,16 +17,14 @@ import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import shared.Assistant;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * RAG 核心服务，负责检索增强生成（RAG）流程的编排。
  *
  * <p>主要功能：</p>
  * <ol>
- *   <li>使用本地 ONNX 嵌入模型（BgeSmallEnV15）将查询向量化</li>
+ *   <li>使用本地 ONNX 嵌入模型（BgeSmallZhV15）将查询向量化</li>
  *   <li>通过内容检索器从向量库中检索最相关的文档片段</li>
  *   <li>将检索到的上下文片段注入 LLM 对话，生成增强后的答案</li>
  * </ol>
@@ -121,30 +119,27 @@ public class RAGService {
                 sources = searchAndCollect(queryVariants.get(0));
             } else {
                 // 多查询变体：分别检索 + RRF 融合
-                List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>();
-                for (int i = 0; i < queryVariants.size(); i++) {
-                    Embedding qEmbedding = embeddingModel.embed(queryVariants.get(i)).content();
+                List<List<EmbeddingMatch<TextSegment>>> matchGroups = new ArrayList<>();
+                for (String variant : queryVariants) {
+                    Embedding qEmbedding = embeddingModel.embed(variant).content();
                     EmbeddingSearchResult<TextSegment> result = storeManager.search(
                             EmbeddingSearchRequest.builder()
                                     .queryEmbedding(qEmbedding)
                                     .maxResults(config.getMaxResults() * 2)
                                     .minScore(config.getMinScore())
                                     .build());
-                    allMatches.addAll(result.matches());
+                    matchGroups.add(result.matches());
                 }
-                // Group matches by variant index for RRF-like fusion
-                // For simplicity: deduplicate by text content, keep highest score
-                Map<String, EmbeddingMatch<TextSegment>> dedup = new LinkedHashMap<>();
-                for (EmbeddingMatch<TextSegment> m : allMatches) {
-                    String key = m.embedded().text();
-                    EmbeddingMatch<TextSegment> existing = dedup.get(key);
-                    if (existing == null || m.score() > existing.score()) {
-                        dedup.put(key, m);
-                    }
+                // RRF 融合：先融合前两组，再与后续组合并
+                List<EmbeddingMatch<TextSegment>> fused = enhancementRouter.fuse(
+                        matchGroups.get(0), matchGroups.get(1),
+                        config.getMaxResults(), enhancementConfig.getRrfK());
+                for (int i = 2; i < matchGroups.size(); i++) {
+                    fused = enhancementRouter.fuse(
+                            fused, matchGroups.get(i),
+                            config.getMaxResults(), enhancementConfig.getRrfK());
                 }
-                sources = dedup.values().stream()
-                        .sorted((a, b) -> Double.compare(b.score(), a.score()))
-                        .limit(config.getMaxResults())
+                sources = fused.stream()
                         .map(this::toSource)
                         .toList();
             }

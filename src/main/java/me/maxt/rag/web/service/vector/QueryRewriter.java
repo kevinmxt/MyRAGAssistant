@@ -35,6 +35,7 @@ public class QueryRewriter implements QueryEnhancer {
                             SystemMessage.from(SYSTEM_PROMPT),
                             UserMessage.from("用户问题：" + query + "\n检索查询：")
                     ))
+                    .maxOutputTokens(maxTokens)
                     .build();
             String rewritten = chatModel.chat(request).aiMessage().text().trim();
             if (rewritten.isEmpty()) return List.of(query);

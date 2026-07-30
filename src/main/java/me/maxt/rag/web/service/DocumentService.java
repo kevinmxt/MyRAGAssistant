@@ -10,6 +10,7 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import me.maxt.rag.web.service.chunking.ChunkingPipeline;
+import me.maxt.rag.web.service.vector.ContextualEnricher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +40,7 @@ public class DocumentService {
     private final int chunkOverlap;
     private final List<String> supportedExtensions;
     private final ChunkingPipeline chunkingPipeline;
+    private final ContextualEnricher contextualEnricher;
     private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
 
     /**
@@ -68,12 +70,30 @@ public class DocumentService {
     public DocumentService(EmbeddingStoreManager storeManager, EmbeddingModel embeddingModel,
                            int chunkSize, int chunkOverlap, List<String> supportedExtensions,
                            ChunkingPipeline chunkingPipeline) {
+        this(storeManager, embeddingModel, chunkSize, chunkOverlap, supportedExtensions, chunkingPipeline, null);
+    }
+
+    /**
+     * 创建文档服务实例（含上下文增强器）。
+     *
+     * @param storeManager       嵌入存储管理器
+     * @param embeddingModel     嵌入模型（共享实例）
+     * @param chunkSize          文档分块大小（字符数）
+     * @param chunkOverlap       分块重叠大小（字符数）
+     * @param supportedExtensions 支持的文件扩展名列表
+     * @param chunkingPipeline   Chunking 管线（为 null 时降级为递归字符切分）
+     * @param contextualEnricher 上下文增强器（为 null 时不增强）
+     */
+    public DocumentService(EmbeddingStoreManager storeManager, EmbeddingModel embeddingModel,
+                           int chunkSize, int chunkOverlap, List<String> supportedExtensions,
+                           ChunkingPipeline chunkingPipeline, ContextualEnricher contextualEnricher) {
         this.storeManager = storeManager;
         this.embeddingModel = embeddingModel;
         this.chunkSize = chunkSize;
         this.chunkOverlap = chunkOverlap;
         this.supportedExtensions = supportedExtensions;
         this.chunkingPipeline = chunkingPipeline;
+        this.contextualEnricher = contextualEnricher;
     }
 
     /**
@@ -139,6 +159,11 @@ public class DocumentService {
                 for (TextSegment segment : segments) {
                     segment.metadata().put("file_name", fileName);
                     segment.metadata().put("file_type", fileType);
+                }
+
+                // 上下文增强：在嵌入前为每个 chunk 加上文件/标题前缀
+                if (contextualEnricher != null) {
+                    segments = contextualEnricher.enrich(segments, fileName);
                 }
 
                 List<Embedding> embeddings = embeddingModel.embedAll(segments).content();

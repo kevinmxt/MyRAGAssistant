@@ -20,6 +20,7 @@ import me.maxt.rag.web.service.chunking.evaluator.ChunkEvaluator;
 import me.maxt.rag.web.service.chunking.splitter.AgentRefiner;
 import me.maxt.rag.web.service.chunking.splitter.SemanticSplitter;
 import me.maxt.rag.web.service.chunking.splitter.StructureSplitter;
+import me.maxt.rag.web.service.vector.ContextualEnricher;
 
 import java.io.File;
 import java.time.Duration;
@@ -71,11 +72,15 @@ public class WebApplication {
                 structureSplitter, semanticSplitter, agentRefiner, chunkEvaluator);
 
         this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel);
+
+        // ContextualEnricher：嵌入前用 LLM 为每个 chunk 添加上下文
+        ContextualEnricher contextualEnricher = new ContextualEnricher();
+
         this.documentService = new DocumentService(
                 storeManager, embeddingModel,
                 config.getChunkSize(), config.getChunkOverlap(),
                 config.getSupportedFileExtensions(),
-                chunkingPipeline);
+                chunkingPipeline, contextualEnricher);
 
         // 控制器
         this.chatController = new ChatController(ragService);

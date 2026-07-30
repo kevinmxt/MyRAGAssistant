@@ -1,23 +1,44 @@
-## Agent skills
+# MyAIDemo2 — 本地知识库智能问答系统
 
-### Issue tracker
+## 命令
 
-Issues 在 GitHub Issues 中管理，使用 `gh` CLI 操作。详见 `docs/agents/issue-tracker.md`。
+| 命令 | 用途 |
+|------|------|
+| `mvn compile` | 编译 |
+| `mvn test` | 运行 25 个单元测试 |
+| `mvn test jacoco:report` | 覆盖率报告 → `target/site/jacoco/index.html` |
+| `mvn clean package` | 构建 Fat JAR |
+| `java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar` | 启动应用 (http://localhost:8080) |
 
-### Triage labels
+## 目录索引
 
-使用默认五个 triage 标签：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。详见 `docs/agents/triage-labels.md`。
+| 文档 | 内容 |
+|------|------|
+| `README.md` | 用户手册、功能特性、配置说明、API 文档 |
+| `docs/architecture.md` | 架构设计原则、模块职责、依赖关系 |
+| `docs/agents/issue-tracker.md` | GitHub Issues 操作约定 |
+| `docs/agents/triage-labels.md` | 五个 triage 标签映射 |
+| `docs/agents/domain.md` | 领域文档布局（CONTEXT.md + ADR） |
+| `config.example.json` | 配置文件模板 |
 
-### Domain docs
+## 测试约定
 
-单上下文布局：`CONTEXT.md` + `docs/adr/` 在仓库根目录。详见 `docs/agents/domain.md`。
+- JUnit 5 + Mockito + AssertJ，Service 层覆盖率 >88%
+- **只 mock 系统边界**（EmbeddingModel、ChatModel），不 mock 自己的模块
+- 测试文件在 `src/test/java/me/maxt/rag/web/` 下，与源码结构一一对应
 
-## 架构
+## 关键入口
 
-- **依赖注入**：`EmbeddingModel`（BgeSmallEnV15）和 `ChatModel`（OpenAiChatModel）在 `App` 入口集中创建，通过构造函数注入 `RAGService` 和 `DocumentService`。不允许 service 内部 `new` 外部依赖。
-- **共享资源**：ONNX 嵌入模型全局只加载一次，避免多实例浪费内存。
-- **EmbeddingStoreManager**：内部 `InMemoryEmbeddingStore` 完全隐藏，外部只通过 `search()`、`createContentRetriever()` 等接口交互。`StoredEntry` 字段 private。
-- **配置接口**：`AppConfig` 拆分为 `LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig` 四个聚焦接口。每个 consumer 只依赖它需要的接口。
-- **启动组装**：`WebApplication` 封装所有依赖创建和路由注册逻辑，`App.main()` 缩减为 5 行胶水代码。wiring 和运行时之间有清晰的 seam。
-- **控制器薄层**：`DocumentController` 只做 JSON↔对象的转换，业务逻辑（文档分组聚合、目录浏览遍历）全部下沉到 `DocumentService`。
-- **测试**：25 个单元测试，JUnit 5 + Mockito + AssertJ。Service 层覆盖率 >88%。只 mock 系统边界（EmbeddingModel、ChatModel），不 mock 自己的模块。
+- `me.maxt.rag.web.App` — 应用入口（5 行胶水代码）
+- `me.maxt.rag.web.WebApplication` — 启动组装工厂（依赖创建 + 路由注册）
+- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 4 个接口
+
+## 环境
+
+- **JDK 17+**、**Maven 3.6+**
+- （可选）**Tesseract OCR** — PNG/JPG 图像提取文字需要
+- 环境变量优先级高于 `config.json`
+
+## 对话
+
+用中文回复、commit message 写中文。

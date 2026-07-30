@@ -9,6 +9,7 @@ import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
+import me.maxt.rag.web.service.chunking.ChunkingPipeline;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,10 +38,11 @@ public class DocumentService {
     private final int chunkSize;
     private final int chunkOverlap;
     private final List<String> supportedExtensions;
+    private final ChunkingPipeline chunkingPipeline;
     private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
 
     /**
-     * 创建文档服务实例。
+     * 创建文档服务实例（向后兼容，使用旧的递归切分）。
      *
      * @param storeManager       嵌入存储管理器
      * @param embeddingModel     嵌入模型（共享实例）
@@ -50,11 +52,28 @@ public class DocumentService {
      */
     public DocumentService(EmbeddingStoreManager storeManager, EmbeddingModel embeddingModel,
                            int chunkSize, int chunkOverlap, List<String> supportedExtensions) {
+        this(storeManager, embeddingModel, chunkSize, chunkOverlap, supportedExtensions, null);
+    }
+
+    /**
+     * 创建文档服务实例。
+     *
+     * @param storeManager       嵌入存储管理器
+     * @param embeddingModel     嵌入模型（共享实例）
+     * @param chunkSize          文档分块大小（字符数）
+     * @param chunkOverlap       分块重叠大小（字符数）
+     * @param supportedExtensions 支持的文件扩展名列表
+     * @param chunkingPipeline   Chunking 管线（为 null 时降级为递归字符切分）
+     */
+    public DocumentService(EmbeddingStoreManager storeManager, EmbeddingModel embeddingModel,
+                           int chunkSize, int chunkOverlap, List<String> supportedExtensions,
+                           ChunkingPipeline chunkingPipeline) {
         this.storeManager = storeManager;
         this.embeddingModel = embeddingModel;
         this.chunkSize = chunkSize;
         this.chunkOverlap = chunkOverlap;
         this.supportedExtensions = supportedExtensions;
+        this.chunkingPipeline = chunkingPipeline;
     }
 
     /**
@@ -92,7 +111,6 @@ public class DocumentService {
                     + " (supported: " + String.join(", ", supportedExtensions) + ")");
         }
 
-        DocumentSplitter splitter = DocumentSplitters.recursive(chunkSize, chunkOverlap);
         ApacheTikaDocumentParser parser = new ApacheTikaDocumentParser();
 
         int filesProcessed = 0;
@@ -101,7 +119,19 @@ public class DocumentService {
         for (File file : matchingFiles) {
             try {
                 Document document = FileSystemDocumentLoader.loadDocument(file.toPath(), parser);
-                List<TextSegment> segments = splitter.split(document);
+                List<TextSegment> segments;
+                if (chunkingPipeline != null) {
+                    try {
+                        segments = chunkingPipeline.execute(file.toPath(), detectFileType(file.getName()));
+                    } catch (Exception e) {
+                        log.warn("新切分管线失败，降级到递归字符切分: {}", file.getName(), e);
+                        DocumentSplitter fallbackSplitter = DocumentSplitters.recursive(chunkSize, chunkOverlap);
+                        segments = fallbackSplitter.split(document);
+                    }
+                } else {
+                    DocumentSplitter fallbackSplitter = DocumentSplitters.recursive(chunkSize, chunkOverlap);
+                    segments = fallbackSplitter.split(document);
+                }
 
                 // Attach file metadata to each segment for traceability
                 String fileName = file.getName();

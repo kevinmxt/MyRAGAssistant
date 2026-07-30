@@ -92,6 +92,20 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** 支持的文件扩展名列表，可通过环境变量 {@code RAG_SUPPORTED_EXTENSIONS}（逗号分隔）覆盖 */
     private List<String> supportedFileExtensions;
 
+    // ========== Chunking 参数 ==========
+
+    /** 分块模式："auto" | "structure" | "semantic" | "recursive"，可通过环境变量 {@code RAG_CHUNKING_MODE} 覆盖 */
+    private String chunkingMode;
+
+    /** 语义断点相似度阈值，可通过环境变量 {@code RAG_CHUNKING_SEMANTIC_THRESHOLD} 覆盖 */
+    private double semanticThreshold;
+
+    /** 是否启用 Agent 精炼，可通过环境变量 {@code RAG_CHUNKING_AGENT_REFINER} 覆盖 */
+    private boolean enableAgentRefiner;
+
+    /** 单块最大字符数上限，可通过环境变量 {@code RAG_CHUNKING_MAX_SIZE} 覆盖 */
+    private int maxChunkSize;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -115,6 +129,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.supportedFileExtensions = Arrays.asList(
                 ".txt", ".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg",
                 ".md", ".html", ".csv", ".json", ".xlsx", ".pptx");
+        this.chunkingMode = "auto";
+        this.semanticThreshold = 0.6;
+        this.enableAgentRefiner = false;
+        this.maxChunkSize = 2000;
     }
 
     /**
@@ -180,6 +198,15 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             } else if (extObj instanceof String) {
                 config.supportedFileExtensions = Arrays.asList(((String) extObj).split(","));
             }
+
+            // Chunking config
+            Map<String, Object> chunking = (Map<String, Object>) document.get("chunking");
+            if (chunking != null) {
+                config.chunkingMode = getString(chunking, "mode", config.chunkingMode);
+                config.semanticThreshold = getDouble(chunking, "semanticThreshold", config.semanticThreshold);
+                config.enableAgentRefiner = getBoolean(chunking, "enableAgentRefiner", config.enableAgentRefiner);
+                config.maxChunkSize = getInt(chunking, "maxChunkSize", config.maxChunkSize);
+            }
         }
 
         Map<String, Object> chat = (Map<String, Object>) fileConfig.get("chat");
@@ -221,6 +248,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         if (extEnv != null && !extEnv.isEmpty()) {
             config.supportedFileExtensions = Arrays.asList(extEnv.split(","));
         }
+        config.chunkingMode = env("RAG_CHUNKING_MODE", config.chunkingMode);
+        config.semanticThreshold = envDouble("RAG_CHUNKING_SEMANTIC_THRESHOLD", config.semanticThreshold);
+        config.enableAgentRefiner = envBool("RAG_CHUNKING_AGENT_REFINER", config.enableAgentRefiner);
+        config.maxChunkSize = envInt("RAG_CHUNKING_MAX_SIZE", config.maxChunkSize);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -263,6 +294,18 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         return defaultVal;
     }
 
+    private static boolean getBoolean(Map<String, Object> map, String key, boolean defaultVal) {
+        Object val = map.get(key);
+        if (val instanceof Boolean) return (Boolean) val;
+        return defaultVal;
+    }
+
+    private static boolean envBool(String name, boolean defaultVal) {
+        String val = System.getenv(name);
+        if (val != null && !val.isEmpty()) return Boolean.parseBoolean(val);
+        return defaultVal;
+    }
+
     // ========== Getters ==========
 
     /** @return DeepSeek API Key */
@@ -297,4 +340,12 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public String getStoreFilePath() { return storeFilePath; }
     /** @return 支持的文件扩展名列表 */
     public List<String> getSupportedFileExtensions() { return supportedFileExtensions; }
+    /** @return 分块模式 */
+    public String getChunkingMode() { return chunkingMode; }
+    /** @return 语义断点相似度阈值 */
+    public double getSemanticThreshold() { return semanticThreshold; }
+    /** @return 是否启用 Agent 精炼 */
+    public boolean isAgentRefinerEnabled() { return enableAgentRefiner; }
+    /** @return 单块最大字符数上限 */
+    public int getMaxChunkSize() { return maxChunkSize; }
 }

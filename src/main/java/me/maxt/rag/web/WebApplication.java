@@ -12,6 +12,14 @@ import me.maxt.rag.web.controller.DocumentController;
 import me.maxt.rag.web.service.DocumentService;
 import me.maxt.rag.web.service.EmbeddingStoreManager;
 import me.maxt.rag.web.service.RAGService;
+import me.maxt.rag.web.service.chunking.ChunkingPipeline;
+import me.maxt.rag.web.service.chunking.analyzer.StructureAnalyzer;
+import me.maxt.rag.web.service.chunking.classifier.SplitClassifier;
+import me.maxt.rag.web.service.chunking.converter.MarkdownConverter;
+import me.maxt.rag.web.service.chunking.evaluator.ChunkEvaluator;
+import me.maxt.rag.web.service.chunking.splitter.AgentRefiner;
+import me.maxt.rag.web.service.chunking.splitter.SemanticSplitter;
+import me.maxt.rag.web.service.chunking.splitter.StructureSplitter;
 
 import java.io.File;
 import java.time.Duration;
@@ -48,11 +56,26 @@ public class WebApplication {
 
         // 服务层
         this.storeManager = new EmbeddingStoreManager(config.getStoreFilePath());
+
+        // Chunking 管线
+        MarkdownConverter markdownConverter = new MarkdownConverter();
+        StructureAnalyzer structureAnalyzer = new StructureAnalyzer();
+        SplitClassifier splitClassifier = new SplitClassifier();
+        StructureSplitter structureSplitter = new StructureSplitter();
+        SemanticSplitter semanticSplitter = new SemanticSplitter(embeddingModel, config.getSemanticThreshold());
+        AgentRefiner agentRefiner = config.isAgentRefinerEnabled() ? new AgentRefiner(chatModel) : null;
+        ChunkEvaluator chunkEvaluator = new ChunkEvaluator();
+
+        ChunkingPipeline chunkingPipeline = new ChunkingPipeline(
+                markdownConverter, structureAnalyzer, splitClassifier,
+                structureSplitter, semanticSplitter, agentRefiner, chunkEvaluator);
+
         this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel);
         this.documentService = new DocumentService(
                 storeManager, embeddingModel,
                 config.getChunkSize(), config.getChunkOverlap(),
-                config.getSupportedFileExtensions());
+                config.getSupportedFileExtensions(),
+                chunkingPipeline);
 
         // 控制器
         this.chatController = new ChatController(ragService);

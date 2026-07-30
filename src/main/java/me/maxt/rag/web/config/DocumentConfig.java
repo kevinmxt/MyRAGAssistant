@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 文档处理相关的配置接口。
  */
-public interface DocumentConfig {
+public interface DocumentConfig extends ChunkingConfig {
     String getDocumentDir();
     int getChunkSize();
     int getChunkOverlap();

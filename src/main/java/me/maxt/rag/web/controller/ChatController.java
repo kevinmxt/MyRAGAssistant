@@ -49,8 +49,11 @@ public class ChatController {
                 return;
             }
 
-            log.info("Chat query: {}", query);
-            RAGService.AnswerWithSources result = ragService.answerWithSources(query.trim());
+            // 解析 enhancement 参数（可选，默认 null → RAGService 内部用 config 默认值）
+            String enhancement = (String) body.getOrDefault("enhancement", null);
+
+            log.info("Chat query: {} (enhancement: {})", query, enhancement);
+            RAGService.AnswerWithSources result = ragService.answerWithSources(query.trim(), enhancement);
 
             ctx.json(result);
         } catch (Exception e) {

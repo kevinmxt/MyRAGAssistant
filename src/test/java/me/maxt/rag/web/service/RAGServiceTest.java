@@ -10,7 +10,9 @@ import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import dev.langchain4j.model.output.TokenUsage;
+import me.maxt.rag.web.config.QueryEnhancementConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
+import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -147,5 +149,36 @@ class RAGServiceTest {
         RAGService.AnswerWithSources result = service.answerWithSources("query");
 
         assertThat(result.sources).hasSize(2);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldUseQueryEnhancementWhenEnabled() {
+        // Add document
+        float[] v1 = {0.5f, 0.5f, 0.5f, 0.5f};
+        TextSegment s1 = TextSegment.from("安装教程：下载后解压运行");
+        s1.metadata().put("file_name", "guide.txt");
+        storeManager.add(Embedding.from(v1), s1);
+
+        // Mock embedding model
+        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
+        Response<Embedding> embedResp = mock(Response.class);
+        when(embedResp.content()).thenReturn(Embedding.from(v1));
+        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
+
+        // Mock Router — return a rewritten query
+        QueryEnhancementRouter mockRouter = mock(QueryEnhancementRouter.class);
+        when(mockRouter.route("怎么装", "rewrite")).thenReturn(List.of("安装教程"));
+
+        QueryEnhancementConfig mockEnhConfig = mock(QueryEnhancementConfig.class);
+        when(mockEnhConfig.isQueryEnhancementEnabled()).thenReturn(true);
+        when(mockEnhConfig.getDefaultEnhancementMode()).thenReturn("rewrite");
+
+        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
+                mockRouter, mockEnhConfig);
+        RAGService.AnswerWithSources result = service.answerWithSources("怎么装", "rewrite");
+
+        assertThat(result.sources).hasSize(1);
+        assertThat(result.sources.get(0).text).isEqualTo("安装教程：下载后解压运行");
     }
 }

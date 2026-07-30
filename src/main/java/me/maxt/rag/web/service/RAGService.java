@@ -11,11 +11,15 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import me.maxt.rag.web.config.QueryEnhancementConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
+import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import shared.Assistant;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * RAG 核心服务，负责检索增强生成（RAG）流程的编排。
@@ -40,6 +44,8 @@ public class RAGService {
     private final ChatModel chatModel;
     private final ContentRetriever contentRetriever;
     private final Assistant assistant;
+    private final QueryEnhancementRouter enhancementRouter;
+    private final QueryEnhancementConfig enhancementConfig;
 
     /**
      * 创建 RAG 服务实例。
@@ -51,10 +57,19 @@ public class RAGService {
      */
     public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
                       EmbeddingModel embeddingModel, ChatModel chatModel) {
+        this(config, storeManager, embeddingModel, chatModel, null, null);
+    }
+
+    public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
+                      EmbeddingModel embeddingModel, ChatModel chatModel,
+                      QueryEnhancementRouter enhancementRouter,
+                      QueryEnhancementConfig enhancementConfig) {
         this.config = config;
         this.storeManager = storeManager;
         this.embeddingModel = embeddingModel;
         this.chatModel = chatModel;
+        this.enhancementRouter = enhancementRouter;
+        this.enhancementConfig = enhancementConfig;
 
         this.contentRetriever = storeManager.createContentRetriever(
                 embeddingModel, config.getMaxResults(), config.getMinScore());
@@ -85,34 +100,87 @@ public class RAGService {
      * @return 包含回答文本和来源列表的结果对象
      */
     public AnswerWithSources answerWithSources(String query) {
-        // Retrieve relevant sources manually
+        return answerWithSources(query, null);
+    }
+
+    public AnswerWithSources answerWithSources(String query, String enhancementMode) {
+        // 解析 enhancement mode
+        String mode = enhancementMode;
+        if (mode == null && enhancementConfig != null) {
+            mode = enhancementConfig.getDefaultEnhancementMode();
+        }
+        if (mode == null) mode = "none";
+
         List<Source> sources = new ArrayList<>();
 
-        Embedding queryEmbedding = embeddingModel.embed(query).content();
-        EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
-                .queryEmbedding(queryEmbedding)
-                .maxResults(config.getMaxResults())
-                .minScore(config.getMinScore())
-                .build();
-        EmbeddingSearchResult<TextSegment> searchResult = storeManager.search(searchRequest);
+        if (enhancementRouter != null && enhancementConfig != null && enhancementConfig.isQueryEnhancementEnabled()) {
+            List<String> queryVariants = enhancementRouter.route(query, mode);
 
-        for (EmbeddingMatch<TextSegment> match : searchResult.matches()) {
-            String fileName = match.embedded().metadata().getString("absolute_directory_path");
-            if (fileName == null) {
-                fileName = match.embedded().metadata().getString("file_name");
+            if (queryVariants.size() == 1) {
+                // 单查询变体：直接检索
+                sources = searchAndCollect(queryVariants.get(0));
             } else {
-                fileName = fileName + "/" + match.embedded().metadata().getString("file_name");
+                // 多查询变体：分别检索 + RRF 融合
+                List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>();
+                for (int i = 0; i < queryVariants.size(); i++) {
+                    Embedding qEmbedding = embeddingModel.embed(queryVariants.get(i)).content();
+                    EmbeddingSearchResult<TextSegment> result = storeManager.search(
+                            EmbeddingSearchRequest.builder()
+                                    .queryEmbedding(qEmbedding)
+                                    .maxResults(config.getMaxResults() * 2)
+                                    .minScore(config.getMinScore())
+                                    .build());
+                    allMatches.addAll(result.matches());
+                }
+                // Group matches by variant index for RRF-like fusion
+                // For simplicity: deduplicate by text content, keep highest score
+                Map<String, EmbeddingMatch<TextSegment>> dedup = new LinkedHashMap<>();
+                for (EmbeddingMatch<TextSegment> m : allMatches) {
+                    String key = m.embedded().text();
+                    EmbeddingMatch<TextSegment> existing = dedup.get(key);
+                    if (existing == null || m.score() > existing.score()) {
+                        dedup.put(key, m);
+                    }
+                }
+                sources = dedup.values().stream()
+                        .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                        .limit(config.getMaxResults())
+                        .map(this::toSource)
+                        .toList();
             }
-            if (fileName == null) {
-                fileName = "unknown";
-            }
-            sources.add(new Source(fileName, match.embedded().text(), match.score()));
+        } else {
+            // 无增强：保持原有逻辑
+            sources = searchAndCollect(query);
         }
 
-        // Get answer from assistant
         String answer = assistant.answer(query);
-
         return new AnswerWithSources(answer, sources);
+    }
+
+    private List<Source> searchAndCollect(String queryText) {
+        List<Source> sources = new ArrayList<>();
+        Embedding queryEmbedding = embeddingModel.embed(queryText).content();
+        EmbeddingSearchResult<TextSegment> result = storeManager.search(
+                EmbeddingSearchRequest.builder()
+                        .queryEmbedding(queryEmbedding)
+                        .maxResults(config.getMaxResults())
+                        .minScore(config.getMinScore())
+                        .build());
+        for (EmbeddingMatch<TextSegment> match : result.matches()) {
+            sources.add(toSource(match));
+        }
+        return sources;
+    }
+
+    private Source toSource(EmbeddingMatch<TextSegment> match) {
+        String fileName = match.embedded().metadata().getString("absolute_directory_path");
+        if (fileName == null) {
+            fileName = match.embedded().metadata().getString("file_name");
+        } else {
+            fileName = fileName + "/" + match.embedded().metadata().getString("file_name");
+        }
+        if (fileName == null) fileName = "unknown";
+        return new Source(fileName, match.embedded().text(), match.score());
     }
 
     /**

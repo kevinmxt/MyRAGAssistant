@@ -37,6 +37,7 @@ class AppConfigTest {
         assertThat(config).isInstanceOf(RetrievalConfig.class);
         assertThat(config).isInstanceOf(DocumentConfig.class);
         assertThat(config).isInstanceOf(ServerConfig.class);
+        assertThat(config).isInstanceOf(QueryEnhancementConfig.class);
     }
 
     @Test
@@ -74,5 +75,14 @@ class AppConfigTest {
         AppConfig config = AppConfig.load();
         assertThat(config).isNotNull();
         assertThat(config.getPort()).isEqualTo(8080);
+    }
+
+    @Test
+    void shouldHaveQueryEnhancementDefaults() {
+        AppConfig config = new AppConfig();
+        assertThat(config.isQueryEnhancementEnabled()).isTrue();
+        assertThat(config.getDefaultEnhancementMode()).isEqualTo("auto");
+        assertThat(config.getRrfK()).isEqualTo(60);
+        assertThat(config.getHydeMaxTokens()).isEqualTo(200);
     }
 }

@@ -10,14 +10,13 @@ import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import dev.langchain4j.model.output.TokenUsage;
+import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import me.maxt.rag.web.config.QueryEnhancementConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,12 +30,10 @@ class RAGServiceTest {
     private EmbeddingStoreManager storeManager;
     private RetrievalConfig config;
     private ChatModel chatModel;
-    private String storeFilePath;
 
     @BeforeEach
     void setUp() {
-        storeFilePath = "target/test-rag-store-" + System.currentTimeMillis() + ".json";
-        storeManager = new EmbeddingStoreManager(storeFilePath);
+        storeManager = new EmbeddingStoreManager(new InMemoryEmbeddingStore<>());
         config = mock(RetrievalConfig.class);
         when(config.getMaxResults()).thenReturn(3);
         when(config.getMinScore()).thenReturn(0.5);
@@ -52,14 +49,6 @@ class RAGServiceTest {
                 .metadata(metadata)
                 .build();
         when(chatModel.chat(any(ChatRequest.class))).thenReturn(chatResponse);
-    }
-
-    @AfterEach
-    void tearDown() {
-        for (String f : new String[]{storeFilePath, storeFilePath + ".tmp"}) {
-            File file = new File(f);
-            if (file.exists()) file.delete();
-        }
     }
 
     @Test

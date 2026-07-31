@@ -2,7 +2,7 @@ package me.maxt.rag.web;
 
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.embedding.onnx.bgesmallenv15q.BgeSmallEnV15QuantizedEmbeddingModel;
+import dev.langchain4j.model.embedding.onnx.bgesmallzhv15q.BgeSmallZhV15QuantizedEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
@@ -18,13 +18,20 @@ import me.maxt.rag.web.service.chunking.classifier.SplitClassifier;
 import me.maxt.rag.web.service.chunking.converter.MarkdownConverter;
 import me.maxt.rag.web.service.chunking.evaluator.ChunkEvaluator;
 import me.maxt.rag.web.service.chunking.splitter.AgentRefiner;
+import me.maxt.rag.web.service.chunking.splitter.SemanticSplitter;
+import me.maxt.rag.web.service.chunking.splitter.StructureSplitter;
+import me.maxt.rag.web.service.vector.ContextualEnricher;
 import me.maxt.rag.web.service.vector.HyDEGenerator;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import me.maxt.rag.web.service.vector.QueryRewriter;
-import me.maxt.rag.web.service.chunking.splitter.SemanticSplitter;
-import me.maxt.rag.web.service.chunking.splitter.StructureSplitter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
 
@@ -33,6 +40,8 @@ import java.util.Map;
  * App.main() 只保留薄胶水层。
  */
 public class WebApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(WebApplication.class);
 
     private final AppConfig config;
     private final EmbeddingModel embeddingModel;
@@ -47,7 +56,7 @@ public class WebApplication {
         this.config = config;
 
         // 共享依赖
-        this.embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
+        this.embeddingModel = new BgeSmallZhV15QuantizedEmbeddingModel();
         this.chatModel = OpenAiChatModel.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
@@ -56,6 +65,32 @@ public class WebApplication {
                 .maxTokens(config.getMaxTokens())
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .build();
+
+        // 检测向量维度不兼容：旧 EN 模型 384 → 新 ZH 模型 512
+        // 在创建 storeManager 之前检查，避免旧数据被加载到内存
+        Path storePath = Paths.get(config.getStoreFilePath());
+        if (Files.exists(storePath)) {
+            try {
+                int newDim = embeddingModel.embed("test").content().dimension();
+                String content = new String(Files.readAllBytes(storePath));
+                // 查找第一个 embedding 数组并计算其长度
+                int embStart = content.indexOf("\"embedding\"");
+                if (embStart >= 0) {
+                    int arrStart = content.indexOf("[", embStart);
+                    int arrEnd = content.indexOf("]", arrStart);
+                    if (arrStart >= 0 && arrEnd >= 0) {
+                        String arr = content.substring(arrStart + 1, arrEnd);
+                        int oldDim = arr.split(",").length;
+                        if (oldDim != newDim) {
+                            log.warn("Vector dimension mismatch: old={}, new={}. Deleting old store...", oldDim, newDim);
+                            Files.delete(storePath);
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                log.warn("Failed to check store dimension, keeping existing file", e);
+            }
+        }
 
         // 服务层
         this.storeManager = new EmbeddingStoreManager(config.getStoreFilePath());
@@ -80,11 +115,15 @@ public class WebApplication {
 
         this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel,
                 enhancementRouter, config);
+
+        // ContextualEnricher：嵌入前用 LLM 为每个 chunk 添加上下文
+        ContextualEnricher contextualEnricher = new ContextualEnricher();
+
         this.documentService = new DocumentService(
                 storeManager, embeddingModel,
                 config.getChunkSize(), config.getChunkOverlap(),
                 config.getSupportedFileExtensions(),
-                chunkingPipeline);
+                chunkingPipeline, contextualEnricher);
 
         // 控制器
         this.chatController = new ChatController(ragService);

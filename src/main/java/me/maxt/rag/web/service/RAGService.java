@@ -17,16 +17,14 @@ import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import shared.Assistant;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * RAG 核心服务，负责检索增强生成（RAG）流程的编排。
  *
  * <p>主要功能：</p>
  * <ol>
- *   <li>使用本地 ONNX 嵌入模型（BgeSmallEnV15）将查询向量化</li>
+ *   <li>使用本地 ONNX 嵌入模型（BgeSmallZhV15）将查询向量化</li>
  *   <li>通过内容检索器从向量库中检索最相关的文档片段</li>
  *   <li>将检索到的上下文片段注入 LLM 对话，生成增强后的答案</li>
  * </ol>
@@ -48,7 +46,7 @@ public class RAGService {
     private final QueryEnhancementConfig enhancementConfig;
 
     /**
-     * 创建 RAG 服务实例（无查询增强）。
+     * 创建 RAG 服务实例。
      *
      * @param config       检索配置
      * @param storeManager 嵌入存储管理器
@@ -60,16 +58,6 @@ public class RAGService {
         this(config, storeManager, embeddingModel, chatModel, null, null);
     }
 
-    /**
-     * 创建 RAG 服务实例（支持查询增强）。
-     *
-     * @param config            检索配置
-     * @param storeManager      嵌入存储管理器
-     * @param embeddingModel    嵌入模型（共享实例）
-     * @param chatModel         聊天模型（共享实例）
-     * @param enhancementRouter 查询增强路由器（可为 null）
-     * @param enhancementConfig 查询增强配置（可为 null）
-     */
     public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
                       EmbeddingModel embeddingModel, ChatModel chatModel,
                       QueryEnhancementRouter enhancementRouter,
@@ -102,7 +90,9 @@ public class RAGService {
     }
 
     /**
-     * 根据用户问题生成回答，并附带检索到的文档来源（无增强）。
+     * 根据用户问题生成回答，并附带检索到的文档来源。
+     *
+     * <p>该方法会先手动执行向量检索以获取来源信息，再通过 AI 助手生成回答。</p>
      *
      * @param query 用户问题
      * @return 包含回答文本和来源列表的结果对象
@@ -111,13 +101,6 @@ public class RAGService {
         return answerWithSources(query, null);
     }
 
-    /**
-     * 根据用户问题生成回答，并附带检索到的文档来源（支持查询增强）。
-     *
-     * @param query            用户问题
-     * @param enhancementMode  增强模式：auto | rewrite | hyde | both | none（null 则使用默认）
-     * @return 包含回答文本和来源列表的结果对象
-     */
     public AnswerWithSources answerWithSources(String query, String enhancementMode) {
         // 解析 enhancement mode
         String mode = enhancementMode;
@@ -126,7 +109,7 @@ public class RAGService {
         }
         if (mode == null) mode = "none";
 
-        List<Source> sources;
+        List<Source> sources = new ArrayList<>();
 
         if (enhancementRouter != null && enhancementConfig != null && enhancementConfig.isQueryEnhancementEnabled()) {
             List<String> queryVariants = enhancementRouter.route(query, mode);
@@ -135,8 +118,8 @@ public class RAGService {
                 // 单查询变体：直接检索
                 sources = searchAndCollect(queryVariants.get(0));
             } else {
-                // 多查询变体：分别检索，按文本去重保留最高分，按分数排序
-                List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>();
+                // 多查询变体：分别检索 + RRF 融合
+                List<List<EmbeddingMatch<TextSegment>>> matchGroups = new ArrayList<>();
                 for (String variant : queryVariants) {
                     Embedding qEmbedding = embeddingModel.embed(variant).content();
                     EmbeddingSearchResult<TextSegment> result = storeManager.search(
@@ -145,20 +128,18 @@ public class RAGService {
                                     .maxResults(config.getMaxResults() * 2)
                                     .minScore(config.getMinScore())
                                     .build());
-                    allMatches.addAll(result.matches());
+                    matchGroups.add(result.matches());
                 }
-                // Deduplicate by text content, keep highest score
-                Map<String, EmbeddingMatch<TextSegment>> dedup = new LinkedHashMap<>();
-                for (EmbeddingMatch<TextSegment> m : allMatches) {
-                    String key = m.embedded().text();
-                    EmbeddingMatch<TextSegment> existing = dedup.get(key);
-                    if (existing == null || m.score() > existing.score()) {
-                        dedup.put(key, m);
-                    }
+                // RRF 融合：先融合前两组，再与后续组合并
+                List<EmbeddingMatch<TextSegment>> fused = enhancementRouter.fuse(
+                        matchGroups.get(0), matchGroups.get(1),
+                        config.getMaxResults(), enhancementConfig.getRrfK());
+                for (int i = 2; i < matchGroups.size(); i++) {
+                    fused = enhancementRouter.fuse(
+                            fused, matchGroups.get(i),
+                            config.getMaxResults(), enhancementConfig.getRrfK());
                 }
-                sources = dedup.values().stream()
-                        .sorted((a, b) -> Double.compare(b.score(), a.score()))
-                        .limit(config.getMaxResults())
+                sources = fused.stream()
                         .map(this::toSource)
                         .toList();
             }
@@ -171,9 +152,6 @@ public class RAGService {
         return new AnswerWithSources(answer, sources);
     }
 
-    /**
-     * 搜索并收集匹配的来源。
-     */
     private List<Source> searchAndCollect(String queryText) {
         List<Source> sources = new ArrayList<>();
         Embedding queryEmbedding = embeddingModel.embed(queryText).content();
@@ -189,9 +167,6 @@ public class RAGService {
         return sources;
     }
 
-    /**
-     * 将 EmbeddingMatch 转换为 Source。
-     */
     private Source toSource(EmbeddingMatch<TextSegment> match) {
         String fileName = match.embedded().metadata().getString("absolute_directory_path");
         if (fileName == null) {

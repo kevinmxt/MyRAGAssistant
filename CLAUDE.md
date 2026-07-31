@@ -5,7 +5,7 @@
 | 命令 | 用途 |
 |------|------|
 | `mvn compile` | 编译 |
-| `mvn test` | 运行 25 个单元测试 |
+| `mvn test` | 运行 61 个单元测试 |
 | `mvn test jacoco:report` | 覆盖率报告 → `target/site/jacoco/index.html` |
 | `mvn clean package` | 构建 Fat JAR |
 | `java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar` | 启动应用 (http://localhost:8080) |
@@ -21,9 +21,21 @@
 | `docs/agents/domain.md` | 领域文档布局（CONTEXT.md + ADR） |
 | `config.example.json` | 配置文件模板 |
 
+## 模块一览
+
+| 模块 | 包路径 | 职责 |
+|------|--------|------|
+| 配置 | `config/` | AppConfig 实现 6 个配置接口（Llm / Retrieval / Document / Server / Chunking / QueryEnhancement） |
+| 文档服务 | `service/DocumentService` | 文档摄入、目录浏览、文件列表 |
+| 向量存储 | `service/EmbeddingStoreManager` | 内存向量存储 + JSON 持久化 |
+| RAG 服务 | `service/RAGService` | 检索增强生成编排，支持查询增强路由 |
+| 智能切分 | `service/chunking/` | 文档分块管线：结构分析 → 策略分类 → 语义切分 → 小模型精炼 |
+| 查询增强 | `service/vector/` | QueryRewriter / HyDEGenerator / QueryEnhancementRouter |
+| 控制器 | `controller/` | ChatController / DocumentController（薄胶水层） |
+
 ## 测试约定
 
-- JUnit 5 + Mockito + AssertJ，Service 层覆盖率 >88%
+- JUnit 5 + Mockito + AssertJ，61 个单元测试，Service 层覆盖率 >88%
 - **只 mock 系统边界**（EmbeddingModel、ChatModel），不 mock 自己的模块
 - 测试文件在 `src/test/java/me/maxt/rag/web/` 下，与源码结构一一对应
 
@@ -31,13 +43,14 @@
 
 - `me.maxt.rag.web.App` — 应用入口（5 行胶水代码）
 - `me.maxt.rag.web.WebApplication` — 启动组装工厂（依赖创建 + 路由注册）
-- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 4 个接口
+- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 6 个接口
 
 ## 环境
 
 - **JDK 17+**、**Maven 3.6+**
 - （可选）**Tesseract OCR** — PNG/JPG 图像提取文字需要
 - 环境变量优先级高于 `config.json`
+- 嵌入模型：**BgeSmallZhV15**（ONNX 本地推理，512 维，中文优化）
 
 ## 对话
 

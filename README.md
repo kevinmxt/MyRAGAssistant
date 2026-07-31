@@ -13,7 +13,7 @@
 | Web 框架 | Javalin 6.x（内嵌 Jetty） |
 | AI 框架 | LangChain4j 1.12.1 |
 | LLM | DeepSeek v4-flash（OpenAI 兼容 API） |
-| 嵌入模型 | BgeSmallEnV15（本地 ONNX 推理，无需 GPU） |
+| 嵌入模型 | BgeSmallZhV15（本地 ONNX 推理，512 维，中文优化） |
 | 文档解析 | Apache Tika 3.x（支持 PDF/DOCX/PNG 等多模态） |
 | 向量存储 | 内存 + JSON 文件持久化 |
 | 前端 | 纯 HTML/CSS/JS（SPA） |
@@ -22,6 +22,8 @@
 ## 功能特性
 
 - **多模态文档支持** — TXT、PDF、DOCX、DOC、PNG、JPG、Markdown、HTML、CSV、JSON、XLSX、PPTX
+- **智能文档切分** — 多策略分块管线：结构分析 → 策略分类 → 语义切分 → 小模型精炼
+- **查询增强** — 支持查询改写（Query Rewriter）和假设文档生成（HyDE），提升检索命中率
 - **目录浏览选择** — Web 界面内置目录浏览器，可视化选择知识库目录
 - **自动分块与向量化** — 文档自动递归分块，本地 ONNX 模型生成嵌入向量
 - **向量数据持久化** — 向量和元数据以 JSON 格式原子写入磁盘，重启后自动恢复
@@ -109,9 +111,15 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `retrieval.maxResults` | number | `3` | 检索最大结果数 |
 | `retrieval.minScore` | number | `0.5` | 检索最低相似度 |
 | `document.dir` | string | `"./documents"` | 默认文档目录 |
-| `document.chunkSize` | number | `300` | 分块大小（字符） |
+| `document.chunkSize` | number | `300` | 默认分块大小（字符） |
 | `document.chunkOverlap` | number | `0` | 分块重叠大小 |
 | `document.supportedExtensions` | array/string | 13种格式 | 支持的文件扩展名 |
+| `chunking.enabled` | boolean | `true` | 是否启用智能切分管线 |
+| `chunking.minChunkSize` | number | `100` | 最小分块大小（字符） |
+| `chunking.maxChunkSize` | number | `800` | 最大分块大小（字符） |
+| `chunking.semanticThreshold` | number | `0.5` | 语义切分相似度阈值 |
+| `queryEnhancement.enabled` | boolean | `false` | 是否启用查询增强 |
+| `queryEnhancement.defaultMode` | string | `"none"` | 默认增强模式（auto/rewrite/hyde/both/none） |
 | `chat.memorySize` | number | `10` | 对话记忆窗口（消息数） |
 | `server.port` | number | `8080` | HTTP 服务端口 |
 | `store.filePath` | string | `"./data/embedding-store.json"` | 向量存储文件 |
@@ -241,29 +249,56 @@ MyAIDemo2/
     │       ├── Easy_RAG_Example2.java
     │       ├── Naive_RAG_Example.java
     │       └── web/
-    │           ├── App.java            # 应用入口（薄胶水层）
-│           ├── WebApplication.java  # 启动组装工厂
+    │           ├── App.java                     # 应用入口（薄胶水层）
+    │           ├── WebApplication.java          # 启动组装工厂
     │           ├── config/
-    │           │   ├── AppConfig.java          # 配置实现
-│           │   ├── LlmConfig.java           # LLM 配置接口
-│           │   ├── RetrievalConfig.java     # 检索配置接口
-│           │   ├── DocumentConfig.java      # 文档配置接口
-│           │   └── ServerConfig.java        # 服务器配置接口
+    │           │   ├── AppConfig.java              # 配置实现（6 个接口）
+    │           │   ├── ChunkingConfig.java         # 切分配置接口
+    │           │   ├── DocumentConfig.java         # 文档配置接口
+    │           │   ├── LlmConfig.java              # LLM 配置接口
+    │           │   ├── QueryEnhancementConfig.java # 查询增强配置接口
+    │           │   ├── RetrievalConfig.java        # 检索配置接口
+    │           │   └── ServerConfig.java           # 服务器配置接口
     │           ├── controller/
-    │           │   ├── ChatController.java     # 对话 API
-    │           │   └── DocumentController.java # 文档管理 API
+    │           │   ├── ChatController.java         # 对话 API
+    │           │   └── DocumentController.java     # 文档管理 API
     │           └── service/
-    │               ├── DocumentService.java       # 文档摄入/浏览/列表服务
-    │               ├── EmbeddingStoreManager.java # 向量存储管理
-    │               └── RAGService.java            # RAG 核心服务
+    │               ├── DocumentService.java        # 文档摄入/浏览/列表服务
+    │               ├── EmbeddingStoreManager.java  # 向量存储管理
+    │               ├── RAGService.java             # RAG 核心服务（含查询增强）
+    │               ├── chunking/
+    │               │   ├── ChunkingPipeline.java   # 分块管线编排
+    │               │   ├── analyzer/StructureAnalyzer.java
+    │               │   ├── classifier/SplitClassifier.java
+    │               │   ├── converter/MarkdownConverter.java
+    │               │   ├── evaluator/ChunkEvaluator.java
+    │               │   └── splitter/
+    │               │       ├── SplitStrategy.java
+    │               │       ├── StructureSplitter.java
+    │               │       ├── SemanticSplitter.java
+    │               │       └── AgentRefiner.java
+    │               └── vector/
+    │                   ├── QueryEnhancer.java
+    │                   ├── QueryRewriter.java
+    │                   ├── HyDEGenerator.java
+    │                   └── QueryEnhancementRouter.java
     └── test/
         └── java/me/maxt/rag/web/
             ├── config/
-            │   └── AppConfigTest.java              # 配置测试
+            │   └── AppConfigTest.java
             └── service/
-                ├── EmbeddingStoreManagerTest.java   # 存储管理测试
-                ├── DocumentServiceTest.java         # 文档服务测试
-                └── RAGServiceTest.java              # RAG 服务测试
+                ├── DocumentServiceTest.java
+                ├── EmbeddingStoreManagerTest.java
+                ├── RAGServiceTest.java
+                └── chunking/
+                    ├── ChunkingPipelineTest.java
+                    ├── analyzer/StructureAnalyzerTest.java
+                    ├── classifier/SplitClassifierTest.java
+                    ├── converter/MarkdownConverterTest.java
+                    └── splitter/
+                        ├── AgentRefinerTest.java
+                        ├── SemanticSplitterTest.java
+                        └── StructureSplitterTest.java
     └── resources/
         └── webapp/
             ├── index.html           # 前端页面
@@ -274,7 +309,7 @@ MyAIDemo2/
 ## 注意事项
 
 1. **OCR 支持**：PNG/JPG 图像文件的文字提取依赖 Tesseract OCR。如果没有安装 Tesseract，图像文件会被静默跳过（不会报错）。Windows 上可通过 [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki) 安装。
-2. **嵌入模型**：首次启动时，BgeSmallEnV15 ONNX 模型会自动下载到本地缓存（约 100MB）。
+2. **嵌入模型**：首次启动时，BgeSmallZhV15 ONNX 模型会自动下载到本地缓存（约 100MB）。
 3. **内存使用**：向量数据存储在内存中，同时持久化到 JSON 文件。大规模文档集（10万+ 片段）建议迁移到外部向量数据库。
 4. **API Key**：默认 API Key 为 `"demo"`，生产环境请通过环境变量 `RAG_LLM_API_KEY` 配置真实 Key。
 5. **端口冲突**：默认端口 8080，可通过 `config.json` 或 `RAG_SERVER_PORT` 环境变量修改。

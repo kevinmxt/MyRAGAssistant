@@ -26,5 +26,15 @@
   },
   "store": {
     "filePath": "./data/embedding-store.json"
+  },
+  "chunking": {
+    "mode": "auto",
+    "semanticThreshold": 0.5,
+    "agentRefinerEnabled": false,
+    "maxChunkSize": 800
+  },
+  "queryEnhancement": {
+    "enabled": false,
+    "defaultMode": "none"
   }
 }

@@ -25,7 +25,7 @@ import java.util.Map;
  * @author maxt
  * @since 1.0
  */
-public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig {
+public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
@@ -106,6 +106,20 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** 单块最大字符数上限，可通过环境变量 {@code RAG_CHUNKING_MAX_SIZE} 覆盖 */
     private int maxChunkSize;
 
+    // ========== 查询增强参数 ==========
+
+    /** 是否启用查询增强，可通过环境变量 RAG_QUERY_ENHANCEMENT_ENABLED 覆盖 */
+    private boolean queryEnhancementEnabled;
+
+    /** 默认增强模式，可通过环境变量 RAG_QUERY_ENHANCEMENT_MODE 覆盖 */
+    private String defaultEnhancementMode;
+
+    /** RRF 融合参数，可通过环境变量 RAG_QUERY_ENHANCEMENT_RRF_K 覆盖 */
+    private int rrfK;
+
+    /** HyDE 生成最大 Token 数，可通过环境变量 RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS 覆盖 */
+    private int hydeMaxTokens;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -133,6 +147,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.semanticThreshold = 0.6;
         this.enableAgentRefiner = false;
         this.maxChunkSize = 2000;
+        this.queryEnhancementEnabled = true;
+        this.defaultEnhancementMode = "auto";
+        this.rrfK = 60;
+        this.hydeMaxTokens = 200;
     }
 
     /**
@@ -223,6 +241,14 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         if (store != null) {
             config.storeFilePath = getString(store, "filePath", config.storeFilePath);
         }
+
+        Map<String, Object> queryEnhancement = (Map<String, Object>) fileConfig.get("queryEnhancement");
+        if (queryEnhancement != null) {
+            config.queryEnhancementEnabled = getBoolean(queryEnhancement, "enabled", config.queryEnhancementEnabled);
+            config.defaultEnhancementMode = getString(queryEnhancement, "defaultMode", config.defaultEnhancementMode);
+            config.rrfK = getInt(queryEnhancement, "rrfK", config.rrfK);
+            config.hydeMaxTokens = getInt(queryEnhancement, "hydeMaxTokens", config.hydeMaxTokens);
+        }
     }
 
     /**
@@ -252,6 +278,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.semanticThreshold = envDouble("RAG_CHUNKING_SEMANTIC_THRESHOLD", config.semanticThreshold);
         config.enableAgentRefiner = envBool("RAG_CHUNKING_AGENT_REFINER", config.enableAgentRefiner);
         config.maxChunkSize = envInt("RAG_CHUNKING_MAX_SIZE", config.maxChunkSize);
+        config.queryEnhancementEnabled = envBool("RAG_QUERY_ENHANCEMENT_ENABLED", config.queryEnhancementEnabled);
+        config.defaultEnhancementMode = env("RAG_QUERY_ENHANCEMENT_MODE", config.defaultEnhancementMode);
+        config.rrfK = envInt("RAG_QUERY_ENHANCEMENT_RRF_K", config.rrfK);
+        config.hydeMaxTokens = envInt("RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS", config.hydeMaxTokens);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -348,4 +378,12 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public boolean isAgentRefinerEnabled() { return enableAgentRefiner; }
     /** @return 单块最大字符数上限 */
     public int getMaxChunkSize() { return maxChunkSize; }
+    /** @return 是否启用查询增强 */
+    public boolean isQueryEnhancementEnabled() { return queryEnhancementEnabled; }
+    /** @return 默认增强模式 */
+    public String getDefaultEnhancementMode() { return defaultEnhancementMode; }
+    /** @return RRF 融合参数 k */
+    public int getRrfK() { return rrfK; }
+    /** @return HyDE 生成文本最大 token 数 */
+    public int getHydeMaxTokens() { return hydeMaxTokens; }
 }

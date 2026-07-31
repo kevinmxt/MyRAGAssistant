@@ -18,6 +18,9 @@ import me.maxt.rag.web.service.chunking.classifier.SplitClassifier;
 import me.maxt.rag.web.service.chunking.converter.MarkdownConverter;
 import me.maxt.rag.web.service.chunking.evaluator.ChunkEvaluator;
 import me.maxt.rag.web.service.chunking.splitter.AgentRefiner;
+import me.maxt.rag.web.service.vector.HyDEGenerator;
+import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
+import me.maxt.rag.web.service.vector.QueryRewriter;
 import me.maxt.rag.web.service.chunking.splitter.SemanticSplitter;
 import me.maxt.rag.web.service.chunking.splitter.StructureSplitter;
 
@@ -70,7 +73,13 @@ public class WebApplication {
                 markdownConverter, structureAnalyzer, splitClassifier,
                 structureSplitter, semanticSplitter, agentRefiner, chunkEvaluator);
 
-        this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel);
+        QueryRewriter queryRewriter = new QueryRewriter(chatModel, 100);
+        HyDEGenerator hydeGenerator = new HyDEGenerator(chatModel, config.getHydeMaxTokens());
+        QueryEnhancementRouter enhancementRouter = new QueryEnhancementRouter(
+                queryRewriter, hydeGenerator, chatModel, config);
+
+        this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel,
+                enhancementRouter, config);
         this.documentService = new DocumentService(
                 storeManager, embeddingModel,
                 config.getChunkSize(), config.getChunkOverlap(),

@@ -11,11 +11,15 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import me.maxt.rag.web.config.QueryEnhancementConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
+import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import shared.Assistant;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * RAG 核心服务，负责检索增强生成（RAG）流程的编排。
@@ -40,9 +44,11 @@ public class RAGService {
     private final ChatModel chatModel;
     private final ContentRetriever contentRetriever;
     private final Assistant assistant;
+    private final QueryEnhancementRouter enhancementRouter;
+    private final QueryEnhancementConfig enhancementConfig;
 
     /**
-     * 创建 RAG 服务实例。
+     * 创建 RAG 服务实例（无查询增强）。
      *
      * @param config       检索配置
      * @param storeManager 嵌入存储管理器
@@ -51,10 +57,29 @@ public class RAGService {
      */
     public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
                       EmbeddingModel embeddingModel, ChatModel chatModel) {
+        this(config, storeManager, embeddingModel, chatModel, null, null);
+    }
+
+    /**
+     * 创建 RAG 服务实例（支持查询增强）。
+     *
+     * @param config            检索配置
+     * @param storeManager      嵌入存储管理器
+     * @param embeddingModel    嵌入模型（共享实例）
+     * @param chatModel         聊天模型（共享实例）
+     * @param enhancementRouter 查询增强路由器（可为 null）
+     * @param enhancementConfig 查询增强配置（可为 null）
+     */
+    public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
+                      EmbeddingModel embeddingModel, ChatModel chatModel,
+                      QueryEnhancementRouter enhancementRouter,
+                      QueryEnhancementConfig enhancementConfig) {
         this.config = config;
         this.storeManager = storeManager;
         this.embeddingModel = embeddingModel;
         this.chatModel = chatModel;
+        this.enhancementRouter = enhancementRouter;
+        this.enhancementConfig = enhancementConfig;
 
         this.contentRetriever = storeManager.createContentRetriever(
                 embeddingModel, config.getMaxResults(), config.getMinScore());
@@ -77,42 +102,105 @@ public class RAGService {
     }
 
     /**
-     * 根据用户问题生成回答，并附带检索到的文档来源。
-     *
-     * <p>该方法会先手动执行向量检索以获取来源信息，再通过 AI 助手生成回答。</p>
+     * 根据用户问题生成回答，并附带检索到的文档来源（无增强）。
      *
      * @param query 用户问题
      * @return 包含回答文本和来源列表的结果对象
      */
     public AnswerWithSources answerWithSources(String query) {
-        // Retrieve relevant sources manually
-        List<Source> sources = new ArrayList<>();
+        return answerWithSources(query, null);
+    }
 
-        Embedding queryEmbedding = embeddingModel.embed(query).content();
-        EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
-                .queryEmbedding(queryEmbedding)
-                .maxResults(config.getMaxResults())
-                .minScore(config.getMinScore())
-                .build();
-        EmbeddingSearchResult<TextSegment> searchResult = storeManager.search(searchRequest);
+    /**
+     * 根据用户问题生成回答，并附带检索到的文档来源（支持查询增强）。
+     *
+     * @param query            用户问题
+     * @param enhancementMode  增强模式：auto | rewrite | hyde | both | none（null 则使用默认）
+     * @return 包含回答文本和来源列表的结果对象
+     */
+    public AnswerWithSources answerWithSources(String query, String enhancementMode) {
+        // 解析 enhancement mode
+        String mode = enhancementMode;
+        if (mode == null && enhancementConfig != null) {
+            mode = enhancementConfig.getDefaultEnhancementMode();
+        }
+        if (mode == null) mode = "none";
 
-        for (EmbeddingMatch<TextSegment> match : searchResult.matches()) {
-            String fileName = match.embedded().metadata().getString("absolute_directory_path");
-            if (fileName == null) {
-                fileName = match.embedded().metadata().getString("file_name");
+        List<Source> sources;
+
+        if (enhancementRouter != null && enhancementConfig != null && enhancementConfig.isQueryEnhancementEnabled()) {
+            List<String> queryVariants = enhancementRouter.route(query, mode);
+
+            if (queryVariants.size() == 1) {
+                // 单查询变体：直接检索
+                sources = searchAndCollect(queryVariants.get(0));
             } else {
-                fileName = fileName + "/" + match.embedded().metadata().getString("file_name");
+                // 多查询变体：分别检索，按文本去重保留最高分，按分数排序
+                List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>();
+                for (String variant : queryVariants) {
+                    Embedding qEmbedding = embeddingModel.embed(variant).content();
+                    EmbeddingSearchResult<TextSegment> result = storeManager.search(
+                            EmbeddingSearchRequest.builder()
+                                    .queryEmbedding(qEmbedding)
+                                    .maxResults(config.getMaxResults() * 2)
+                                    .minScore(config.getMinScore())
+                                    .build());
+                    allMatches.addAll(result.matches());
+                }
+                // Deduplicate by text content, keep highest score
+                Map<String, EmbeddingMatch<TextSegment>> dedup = new LinkedHashMap<>();
+                for (EmbeddingMatch<TextSegment> m : allMatches) {
+                    String key = m.embedded().text();
+                    EmbeddingMatch<TextSegment> existing = dedup.get(key);
+                    if (existing == null || m.score() > existing.score()) {
+                        dedup.put(key, m);
+                    }
+                }
+                sources = dedup.values().stream()
+                        .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                        .limit(config.getMaxResults())
+                        .map(this::toSource)
+                        .toList();
             }
-            if (fileName == null) {
-                fileName = "unknown";
-            }
-            sources.add(new Source(fileName, match.embedded().text(), match.score()));
+        } else {
+            // 无增强：保持原有逻辑
+            sources = searchAndCollect(query);
         }
 
-        // Get answer from assistant
         String answer = assistant.answer(query);
-
         return new AnswerWithSources(answer, sources);
+    }
+
+    /**
+     * 搜索并收集匹配的来源。
+     */
+    private List<Source> searchAndCollect(String queryText) {
+        List<Source> sources = new ArrayList<>();
+        Embedding queryEmbedding = embeddingModel.embed(queryText).content();
+        EmbeddingSearchResult<TextSegment> result = storeManager.search(
+                EmbeddingSearchRequest.builder()
+                        .queryEmbedding(queryEmbedding)
+                        .maxResults(config.getMaxResults())
+                        .minScore(config.getMinScore())
+                        .build());
+        for (EmbeddingMatch<TextSegment> match : result.matches()) {
+            sources.add(toSource(match));
+        }
+        return sources;
+    }
+
+    /**
+     * 将 EmbeddingMatch 转换为 Source。
+     */
+    private Source toSource(EmbeddingMatch<TextSegment> match) {
+        String fileName = match.embedded().metadata().getString("absolute_directory_path");
+        if (fileName == null) {
+            fileName = match.embedded().metadata().getString("file_name");
+        } else {
+            fileName = fileName + "/" + match.embedded().metadata().getString("file_name");
+        }
+        if (fileName == null) fileName = "unknown";
+        return new Source(fileName, match.embedded().text(), match.score());
     }
 
     /**

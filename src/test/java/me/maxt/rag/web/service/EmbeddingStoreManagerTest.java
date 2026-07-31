@@ -77,4 +77,32 @@ class EmbeddingStoreManagerTest {
         EmbeddingSearchResult<TextSegment> result = mgr.search(request);
         assertThat(result.matches()).isEmpty();
     }
+
+    @Test
+    void shouldTrackDocumentIndex() {
+        TextSegment seg = TextSegment.from("content");
+        seg.metadata().put("file_name", "test.pdf");
+        seg.metadata().put("file_type", "PDF");
+        seg.metadata().put("absolute_directory_path", "/docs");
+        mgr.add(Embedding.from(new float[]{0.5f}), seg);
+
+        assertThat(mgr.getDocumentIndex()).containsKey("test.pdf");
+        EmbeddingStoreManager.DocEntry entry = mgr.getDocumentIndex().get("test.pdf");
+        assertThat(entry.segmentCount).isEqualTo(1);
+        assertThat(entry.fileType).isEqualTo("PDF");
+        assertThat(entry.directory).isEqualTo("/docs");
+    }
+
+    @Test
+    void shouldMergeSegmentCountInIndex() {
+        TextSegment seg1 = TextSegment.from("part1");
+        seg1.metadata().put("file_name", "doc.txt");
+        TextSegment seg2 = TextSegment.from("part2");
+        seg2.metadata().put("file_name", "doc.txt");
+
+        mgr.add(Embedding.from(new float[]{0.1f}), seg1);
+        mgr.add(Embedding.from(new float[]{0.2f}), seg2);
+
+        assertThat(mgr.getDocumentIndex().get("doc.txt").segmentCount).isEqualTo(2);
+    }
 }

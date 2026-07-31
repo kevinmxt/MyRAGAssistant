@@ -200,15 +200,18 @@ public class DocumentService {
     /**
      * 列出已索引的文档，按文件名分组聚合。
      *
-     * <p>注意：EmbeddingStoreManager 重构为注入 {@code EmbeddingStore<TextSegment>} 接口后，
-     * 通用 EmbeddingStore 接口（Milvus、InMemory）均不提供枚举全部条目的能力，
-     * 该方法暂返回空列表。后续可通过 Milvus 原生查询接口增强。</p>
+     * <p>通过 EmbeddingStoreManager 内部维护的文档元数据索引查询，
+     * 每次 ingest 时自动更新，不依赖 Milvus 原生枚举能力。</p>
      *
-     * @return 文档摘要列表（当前固定返回空列表）
+     * @return 文档摘要列表
      */
     public List<DocumentSummary> listDocuments() {
-        log.warn("listDocuments() 在向量存储抽象化后暂不支持，返回空列表");
-        return new ArrayList<>();
+        List<DocumentSummary> docs = new ArrayList<>();
+        for (var entry : storeManager.getDocumentIndex().entrySet()) {
+            EmbeddingStoreManager.DocEntry e = entry.getValue();
+            docs.add(new DocumentSummary(entry.getKey(), e.segmentCount, e.directory, e.fileType));
+        }
+        return docs;
     }
 
     /**

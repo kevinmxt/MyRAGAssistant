@@ -85,14 +85,20 @@ class DocumentServiceTest {
 
     @Test
     void shouldListDocumentsEmpty() {
-        // listDocuments 在 EmbeddingStore 抽象化后暂返回空列表，后续可用 Milvus 原生查询增强
+        // 通过 docIndex 追踪，listDocuments 应返回已索引文档
         TextSegment seg = TextSegment.from("hello");
         seg.metadata().put("file_name", "readme.txt");
         seg.metadata().put("file_type", "TXT");
+        seg.metadata().put("absolute_directory_path", "/docs");
         storeManager.add(Embedding.from(new float[]{0.1f, 0.2f}), seg);
 
         DocumentService service = new DocumentService(storeManager, embeddingModel, 300, 0, List.of());
-        assertThat(service.listDocuments()).isEmpty();
+        List<DocumentService.DocumentSummary> docs = service.listDocuments();
+        assertThat(docs).hasSize(1);
+        assertThat(docs.get(0).fileName).isEqualTo("readme.txt");
+        assertThat(docs.get(0).segmentCount).isEqualTo(1);
+        assertThat(docs.get(0).fileType).isEqualTo("TXT");
+        assertThat(docs.get(0).directory).isEqualTo("/docs");
     }
 
     @Test

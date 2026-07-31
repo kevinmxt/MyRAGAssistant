@@ -8,11 +8,11 @@
 
 ## EmbeddingStoreManager
 
-内部 `InMemoryEmbeddingStore` 完全隐藏，外部只通过 `search()`、`createContentRetriever()` 等接口交互。`StoredEntry` 字段 private。
+构造函数注入 `EmbeddingStore<TextSegment>` 接口，生产环境注入 `MilvusEmbeddingStore`，测试注入 `InMemoryEmbeddingStore`。内部维护轻量级 `docIndex`（ConcurrentHashMap）追踪文档元数据（文件名、类型、目录、片段数）。`StoredEntry` 和 JSON 文件持久化已删除——持久化由 Milvus Docker volume 负责。
 
 ## 配置接口
 
-`AppConfig` 拆分为 6 个聚焦接口：`LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig`、`ChunkingConfig`、`QueryEnhancementConfig`。每个 consumer 只依赖它需要的接口。
+`AppConfig` 拆分为 6 个聚焦接口：`LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig`、`QueryEnhancementConfig`、`MilvusConfig`。每个 consumer 只依赖它需要的接口。
 
 ## 启动组装
 
@@ -58,14 +58,17 @@ StructureAnalyzer → SplitClassifier → StructureSplitter/SemanticSplitter →
 
 ## 测试
 
-- 61 个单元测试，JUnit 5 + Mockito + AssertJ + JaCoCo
-- Service 层覆盖率 >88%
-- 只 mock 系统边界（EmbeddingModel、ChatModel），使用真实 `EmbeddingStoreManager` 实例
+- 76 个单元测试，JUnit 5 + Mockito + AssertJ + JaCoCo
+- Service 层覆盖率 >79%
+- 只 mock 系统边界（EmbeddingModel、ChatModel），使用真实 `EmbeddingStoreManager` 实例（注入 `InMemoryEmbeddingStore`）
+- `EmbeddingStoreManagerMilvusIT` 集成测试用 Testcontainers 启动真实 Milvus，surefire 默认排除（*IT 命名约定）
 - Controllers 不单独测试（薄胶水层）
 
 ## Gotchas
 
 - 首次启动时 BgeSmallZhV15 ONNX 模型自动下载到本地缓存（约 100MB）
+- Milvus 需通过 `docker compose up -d` 提前启动（端口 19530）
+- MilvusEmbeddingStore 默认 consistencyLevel=EVENTUALLY，本应用显式设为 STRONG 保证写入立即可查
 - 默认端口 8080，冲突时通过 `server.port` 或 `RAG_SERVER_PORT` 修改
 - config.json 放在工作目录（与 JAR 同目录）
 - 环境变量优先级高于 config.json

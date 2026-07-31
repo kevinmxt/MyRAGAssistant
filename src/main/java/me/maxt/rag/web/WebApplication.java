@@ -4,8 +4,10 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.bgesmallzhv15q.BgeSmallZhV15QuantizedEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.store.embedding.milvus.MilvusEmbeddingStore;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
+import io.milvus.common.clientenum.ConsistencyLevelEnum;
 import me.maxt.rag.web.config.AppConfig;
 import me.maxt.rag.web.controller.ChatController;
 import me.maxt.rag.web.controller.DocumentController;
@@ -25,13 +27,7 @@ import me.maxt.rag.web.service.vector.HyDEGenerator;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import me.maxt.rag.web.service.vector.QueryRewriter;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
 
@@ -40,8 +36,6 @@ import java.util.Map;
  * App.main() 只保留薄胶水层。
  */
 public class WebApplication {
-
-    private static final Logger log = LoggerFactory.getLogger(WebApplication.class);
 
     private final AppConfig config;
     private final EmbeddingModel embeddingModel;
@@ -66,34 +60,16 @@ public class WebApplication {
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .build();
 
-        // 检测向量维度不兼容：旧 EN 模型 384 → 新 ZH 模型 512
-        // 在创建 storeManager 之前检查，避免旧数据被加载到内存
-        Path storePath = Paths.get(config.getStoreFilePath());
-        if (Files.exists(storePath)) {
-            try {
-                int newDim = embeddingModel.embed("test").content().dimension();
-                String content = new String(Files.readAllBytes(storePath));
-                // 查找第一个 embedding 数组并计算其长度
-                int embStart = content.indexOf("\"embedding\"");
-                if (embStart >= 0) {
-                    int arrStart = content.indexOf("[", embStart);
-                    int arrEnd = content.indexOf("]", arrStart);
-                    if (arrStart >= 0 && arrEnd >= 0) {
-                        String arr = content.substring(arrStart + 1, arrEnd);
-                        int oldDim = arr.split(",").length;
-                        if (oldDim != newDim) {
-                            log.warn("Vector dimension mismatch: old={}, new={}. Deleting old store...", oldDim, newDim);
-                            Files.delete(storePath);
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                log.warn("Failed to check store dimension, keeping existing file", e);
-            }
-        }
+        // Milvus 向量存储（STRONG 一致性保证写入后立即可查）
+        MilvusEmbeddingStore milvusStore = MilvusEmbeddingStore.builder()
+                .host(config.getMilvusHost())
+                .port(config.getMilvusPort())
+                .collectionName(config.getMilvusCollectionName())
+                .dimension(config.getMilvusDimension())
+                .consistencyLevel(ConsistencyLevelEnum.STRONG)
+                .build();
 
-        // 服务层
-        this.storeManager = new EmbeddingStoreManager(config.getStoreFilePath());
+        this.storeManager = new EmbeddingStoreManager(milvusStore);
 
         // Chunking 管线
         MarkdownConverter markdownConverter = new MarkdownConverter();
@@ -157,10 +133,10 @@ public class WebApplication {
         return app;
     }
 
-    /** 启动后自动摄入默认文档目录（如目录存在且 store 为空）。 */
+    /** 启动后自动摄入默认文档目录（如目录存在）。 */
     public void autoIngestIfNeeded() {
         File defaultDocDir = new File(config.getDocumentDir());
-        if (defaultDocDir.exists() && defaultDocDir.isDirectory() && storeManager.getEntryCount() == 0) {
+        if (defaultDocDir.exists() && defaultDocDir.isDirectory()) {
             documentService.ingestDirectory(config.getDocumentDir());
         }
     }

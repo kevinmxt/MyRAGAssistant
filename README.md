@@ -17,7 +17,7 @@
 | 文档解析 | Apache Tika 3.x（支持 PDF/DOCX/PNG 等多模态） |
 | 文档切分 | flexmark-java + 自适应混合策略（结构/语义/智能体） |
 | Markdown 转换 | Pandoc（可选）+ Tika fallback |
-| 向量存储 | 内存 + JSON 文件持久化 |
+| 向量存储 | Milvus（Docker standalone） |
 | 前端 | 纯 HTML/CSS/JS（SPA） |
 | 打包 | Maven Shade Plugin（Fat JAR） |
 
@@ -30,7 +30,7 @@
 - **上下文增强** — 嵌入前为每个 chunk 附加文档名和章节路径，让向量感知上下文
 - **查询增强** — LLM 驱动的查询改写 + HyDE（假设文档生成）+ RRF 融合，智能适配不同问题类型
 - **自动向量化** — 本地 ONNX 模型生成嵌入向量，支持批量处理
-- **向量数据持久化** — 向量和元数据以 JSON 格式原子写入磁盘，重启后自动恢复
+- **向量数据持久化** — 向量数据存储于 Milvus，通过 Docker volume 持久化，重启后自动恢复
 - **RAG 智能问答** — 基于检索增强生成的智能问答，答案附带参考来源
 - **可配置参数** — 通过 config.json 和环境变量灵活配置所有参数
 - **支持中文对话** — 系统提示词为中文，对话体验友好
@@ -45,6 +45,12 @@
 - （可选）**Pandoc** — 如需高质量 PDF/DOCX 转 Markdown，建议安装 Pandoc
 
 ## 快速开始
+
+### 0. 启动 Milvus
+
+```bash
+docker compose up -d
+```
 
 ### 1. 配置
 
@@ -141,7 +147,11 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `queryEnhancement.hydeMaxTokens` | number | `200` | HyDE 生成文本最大 token 数 |
 | `chat.memorySize` | number | `10` | 对话记忆窗口（消息数） |
 | `server.port` | number | `8080` | HTTP 服务端口 |
-| `store.filePath` | string | `"./data/embedding-store.json"` | 向量存储文件 |
+| `milvus.host` | string | `"localhost"` | Milvus 服务地址 |
+| `milvus.port` | number | `19530` | Milvus gRPC 端口 |
+| `milvus.collectionName` | string | `"rag_knowledge_base"` | Collection 名称 |
+| `milvus.dimension` | number | `512` | 向量维度 |
+| `milvus.consistencyLevel` | string | `"STRONG"` | Milvus 一致性级别（STRONG 保证写入后立即可查） |
 
 ### 环境变量
 
@@ -161,7 +171,10 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `RAG_CHAT_MEMORY_SIZE` | `chat.memorySize` |
 | `RAG_SERVER_PORT` | `server.port` |
 | `RAG_DOCUMENT_DIR` | `document.dir` |
-| `RAG_STORE_PATH` | `store.filePath` |
+| `RAG_MILVUS_HOST` | `milvus.host` |
+| `RAG_MILVUS_PORT` | `milvus.port` |
+| `RAG_MILVUS_COLLECTION` | `milvus.collectionName` |
+| `RAG_MILVUS_DIMENSION` | `milvus.dimension` |
 | `RAG_SUPPORTED_EXTENSIONS` | `document.supportedExtensions`（逗号分隔） |
 | `RAG_CHUNKING_MODE` | `document.chunking.mode` |
 | `RAG_CHUNKING_SEMANTIC_THRESHOLD` | `document.chunking.semanticThreshold` |
@@ -354,7 +367,7 @@ MyAIDemo2/
 
 1. **OCR 支持**：PNG/JPG 图像文件的文字提取依赖 Tesseract OCR。如果没有安装 Tesseract，图像文件会被静默跳过（不会报错）。Windows 上可通过 [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki) 安装。
 2. **嵌入模型**：首次启动时，BgeSmallZhV15（中文优化）ONNX 模型会自动下载到本地缓存（约 100MB）。向量维度 512，与旧版 EN 模型（384 维）不兼容，切换后旧向量数据会自动清空。
-3. **内存使用**：向量数据存储在内存中，同时持久化到 JSON 文件。大规模文档集（10万+ 片段）建议迁移到外部向量数据库。
+3. **Milvus 持久化**：Milvus 向量数据通过 Docker volume 持久化，无需手动管理。
 4. **API Key**：默认 API Key 为 `"demo"`，生产环境请通过环境变量 `RAG_LLM_API_KEY` 配置真实 Key。
 5. **端口冲突**：默认端口 8080，可通过 `config.json` 或 `RAG_SERVER_PORT` 环境变量修改。
 6. **Pandoc 支持**：安装 Pandoc 后，PDF/DOCX 文档会自动转为 Markdown 再切分，保留标题、代码块等结构信息。未安装时自动降级到 Tika 纯文本提取。Windows 上可通过 `winget install Pandoc.Pandoc` 或 [pandoc.org](https://pandoc.org/installing.html) 安装。

@@ -18,10 +18,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * 文档摄入服务，负责从目录加载多模态文档并进行分块和向量化。
@@ -203,30 +200,15 @@ public class DocumentService {
     /**
      * 列出已索引的文档，按文件名分组聚合。
      *
-     * @return 文档摘要列表
+     * <p>注意：EmbeddingStoreManager 重构为注入 {@code EmbeddingStore<TextSegment>} 接口后，
+     * 通用 EmbeddingStore 接口（Milvus、InMemory）均不提供枚举全部条目的能力，
+     * 该方法暂返回空列表。后续可通过 Milvus 原生查询接口增强。</p>
+     *
+     * @return 文档摘要列表（当前固定返回空列表）
      */
     public List<DocumentSummary> listDocuments() {
-        List<EmbeddingStoreManager.StoredEntry> entries = storeManager.listDocuments();
-
-        Map<String, List<EmbeddingStoreManager.StoredEntry>> grouped = entries.stream()
-                .collect(Collectors.groupingBy(e -> {
-                    Map<String, Object> meta = e.getMetadata();
-                    String fileName = meta != null ? (String) meta.get("file_name") : null;
-                    return fileName != null ? fileName : "unknown";
-                }));
-
-        List<DocumentSummary> documents = new ArrayList<>();
-        for (Map.Entry<String, List<EmbeddingStoreManager.StoredEntry>> group : grouped.entrySet()) {
-            Map<String, Object> meta = group.getValue().get(0).getMetadata();
-            String dir = meta != null ? (String) meta.get("absolute_directory_path") : null;
-            String fileType = meta != null ? (String) meta.get("file_type") : null;
-            documents.add(new DocumentSummary(
-                    group.getKey(),
-                    group.getValue().size(),
-                    dir != null ? dir : "",
-                    fileType != null ? fileType : ""));
-        }
-        return documents;
+        log.warn("listDocuments() 在向量存储抽象化后暂不支持，返回空列表");
+        return new ArrayList<>();
     }
 
     /**

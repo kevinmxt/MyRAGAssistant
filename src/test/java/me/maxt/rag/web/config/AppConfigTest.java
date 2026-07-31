@@ -28,6 +28,10 @@ class AppConfigTest {
         assertThat(config.getDocumentDir()).isEqualTo("./documents");
         assertThat(config.getStoreFilePath()).isEqualTo("./data/embedding-store.json");
         assertThat(config.getSupportedFileExtensions()).contains(".pdf", ".txt", ".docx");
+        assertThat(config.getMilvusHost()).isEqualTo("localhost");
+        assertThat(config.getMilvusPort()).isEqualTo(19530);
+        assertThat(config.getMilvusCollectionName()).isEqualTo("rag_knowledge_base");
+        assertThat(config.getMilvusDimension()).isEqualTo(512);
     }
 
     @Test
@@ -38,6 +42,7 @@ class AppConfigTest {
         assertThat(config).isInstanceOf(DocumentConfig.class);
         assertThat(config).isInstanceOf(ServerConfig.class);
         assertThat(config).isInstanceOf(QueryEnhancementConfig.class);
+        assertThat(config).isInstanceOf(MilvusConfig.class);
     }
 
     @Test
@@ -84,5 +89,14 @@ class AppConfigTest {
         assertThat(config.getDefaultEnhancementMode()).isEqualTo("auto");
         assertThat(config.getRrfK()).isEqualTo(60);
         assertThat(config.getHydeMaxTokens()).isEqualTo(200);
+    }
+
+    @Test
+    void shouldHaveMilvusDefaults() {
+        AppConfig config = new AppConfig();
+        assertThat(config.getMilvusHost()).isEqualTo("localhost");
+        assertThat(config.getMilvusPort()).isEqualTo(19530);
+        assertThat(config.getMilvusCollectionName()).isEqualTo("rag_knowledge_base");
+        assertThat(config.getMilvusDimension()).isEqualTo(512);
     }
 }

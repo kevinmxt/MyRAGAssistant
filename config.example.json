@@ -24,8 +24,12 @@
   "server": {
     "port": 8080
   },
-  "store": {
-    "filePath": "./data/embedding-store.json"
+  "milvus": {
+    "host": "localhost",
+    "port": 19530,
+    "collectionName": "rag_knowledge_base",
+    "dimension": 512,
+    "consistencyLevel": "STRONG"
   },
   "queryEnhancement": {
     "enabled": true,

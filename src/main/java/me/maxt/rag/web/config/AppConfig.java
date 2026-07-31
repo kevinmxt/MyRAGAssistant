@@ -25,7 +25,7 @@ import java.util.Map;
  * @author maxt
  * @since 1.0
  */
-public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig {
+public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
@@ -120,6 +120,20 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** HyDE 生成最大 Token 数，可通过环境变量 RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS 覆盖 */
     private int hydeMaxTokens;
 
+    // ========== Milvus 参数 ==========
+
+    /** Milvus 服务主机地址，可通过环境变量 RAG_MILVUS_HOST 覆盖 */
+    private String milvusHost;
+
+    /** Milvus gRPC 端口，可通过环境变量 RAG_MILVUS_PORT 覆盖 */
+    private int milvusPort;
+
+    /** Milvus collection 名称，可通过环境变量 RAG_MILVUS_COLLECTION 覆盖 */
+    private String milvusCollectionName;
+
+    /** 向量维度，可通过环境变量 RAG_MILVUS_DIMENSION 覆盖 */
+    private int milvusDimension;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -151,6 +165,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.defaultEnhancementMode = "auto";
         this.rrfK = 60;
         this.hydeMaxTokens = 200;
+        this.milvusHost = "localhost";
+        this.milvusPort = 19530;
+        this.milvusCollectionName = "rag_knowledge_base";
+        this.milvusDimension = 512;
     }
 
     /**
@@ -242,6 +260,14 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             config.storeFilePath = getString(store, "filePath", config.storeFilePath);
         }
 
+        Map<String, Object> milvus = (Map<String, Object>) fileConfig.get("milvus");
+        if (milvus != null) {
+            config.milvusHost = getString(milvus, "host", config.milvusHost);
+            config.milvusPort = getInt(milvus, "port", config.milvusPort);
+            config.milvusCollectionName = getString(milvus, "collectionName", config.milvusCollectionName);
+            config.milvusDimension = getInt(milvus, "dimension", config.milvusDimension);
+        }
+
         Map<String, Object> queryEnhancement = (Map<String, Object>) fileConfig.get("queryEnhancement");
         if (queryEnhancement != null) {
             config.queryEnhancementEnabled = getBoolean(queryEnhancement, "enabled", config.queryEnhancementEnabled);
@@ -282,6 +308,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.defaultEnhancementMode = env("RAG_QUERY_ENHANCEMENT_MODE", config.defaultEnhancementMode);
         config.rrfK = envInt("RAG_QUERY_ENHANCEMENT_RRF_K", config.rrfK);
         config.hydeMaxTokens = envInt("RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS", config.hydeMaxTokens);
+        config.milvusHost = env("RAG_MILVUS_HOST", config.milvusHost);
+        config.milvusPort = envInt("RAG_MILVUS_PORT", config.milvusPort);
+        config.milvusCollectionName = env("RAG_MILVUS_COLLECTION", config.milvusCollectionName);
+        config.milvusDimension = envInt("RAG_MILVUS_DIMENSION", config.milvusDimension);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -386,4 +416,12 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public int getRrfK() { return rrfK; }
     /** @return HyDE 生成文本最大 token 数 */
     public int getHydeMaxTokens() { return hydeMaxTokens; }
+    /** @return Milvus 服务主机地址 */
+    public String getMilvusHost() { return milvusHost; }
+    /** @return Milvus gRPC 端口 */
+    public int getMilvusPort() { return milvusPort; }
+    /** @return Milvus collection 名称 */
+    public String getMilvusCollectionName() { return milvusCollectionName; }
+    /** @return 向量维度 */
+    public int getMilvusDimension() { return milvusDimension; }
 }

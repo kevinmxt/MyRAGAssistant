@@ -7,6 +7,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.store.embedding.milvus.MilvusEmbeddingStore;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
+import io.milvus.common.clientenum.ConsistencyLevelEnum;
 import me.maxt.rag.web.config.AppConfig;
 import me.maxt.rag.web.controller.ChatController;
 import me.maxt.rag.web.controller.DocumentController;
@@ -59,12 +60,13 @@ public class WebApplication {
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .build();
 
-        // Milvus 向量存储
+        // Milvus 向量存储（STRONG 一致性保证写入后立即可查）
         MilvusEmbeddingStore milvusStore = MilvusEmbeddingStore.builder()
                 .host(config.getMilvusHost())
                 .port(config.getMilvusPort())
                 .collectionName(config.getMilvusCollectionName())
                 .dimension(config.getMilvusDimension())
+                .consistencyLevel(ConsistencyLevelEnum.STRONG)
                 .build();
 
         this.storeManager = new EmbeddingStoreManager(milvusStore);

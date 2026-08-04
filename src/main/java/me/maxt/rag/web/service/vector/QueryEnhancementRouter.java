@@ -100,35 +100,12 @@ public class QueryEnhancementRouter {
     }
 
     /**
-     * RRF (Reciprocal Rank Fusion) 融合两组检索结果。
+     * RRF (Reciprocal Rank Fusion) 融合两组检索结果，委托给 {@link RrfFusion}。
      */
     public List<EmbeddingMatch<TextSegment>> fuse(
             List<EmbeddingMatch<TextSegment>> resultA,
             List<EmbeddingMatch<TextSegment>> resultB,
             int topK, int k) {
-
-        Map<String, Double> rrfScores = new LinkedHashMap<>();
-        Map<String, EmbeddingMatch<TextSegment>> matchMap = new HashMap<>();
-
-        accumulateRrf(resultA, rrfScores, matchMap, k);
-        accumulateRrf(resultB, rrfScores, matchMap, k);
-
-        return rrfScores.entrySet().stream()
-                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
-                .limit(topK)
-                .map(e -> matchMap.get(e.getKey()))
-                .toList();
-    }
-
-    private void accumulateRrf(List<EmbeddingMatch<TextSegment>> results,
-                                Map<String, Double> scores,
-                                Map<String, EmbeddingMatch<TextSegment>> matchMap,
-                                int k) {
-        for (int i = 0; i < results.size(); i++) {
-            EmbeddingMatch<TextSegment> match = results.get(i);
-            String key = match.embedded().text();
-            scores.merge(key, 1.0 / (k + i + 1), Double::sum);
-            matchMap.putIfAbsent(key, match);
-        }
+        return RrfFusion.fuse(resultA, resultB, topK, k);
     }
 }

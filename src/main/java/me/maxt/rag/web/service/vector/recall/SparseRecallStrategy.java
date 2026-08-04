@@ -3,6 +3,8 @@ package me.maxt.rag.web.service.vector.recall;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import io.milvus.v2.client.MilvusClientV2;
+import io.milvus.v2.service.collection.request.DescribeCollectionReq;
+import io.milvus.v2.service.collection.response.DescribeCollectionResp;
 import io.milvus.v2.service.vector.request.SearchReq;
 import io.milvus.v2.service.vector.request.data.EmbeddedText;
 import io.milvus.v2.service.vector.response.SearchResp;
@@ -17,17 +19,42 @@ import java.util.List;
  * 稀疏向量检索策略，使用 Milvus 原生 BM25 分词器。
  * 依赖 Milvus collection 中已有稀疏向量字段 "sparse_vector"，
  * 且已通过 BM25EmbeddingFunction 绑定到 "text" 字段。
+ *
+ * <p>构造函数启动时探测 collection schema：不存在 sparse_vector 字段
+ * （或无法探测，如 Milvus 未运行）时自动降级，recall 恒返回空列表。</p>
  */
 public class SparseRecallStrategy implements RecallStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(SparseRecallStrategy.class);
 
+    private static final String SPARSE_FIELD = "sparse_vector";
+
     private final MilvusClientV2 milvusClient;
     private final String collectionName;
+    private final boolean sparseAvailable;
 
     public SparseRecallStrategy(MilvusClientV2 milvusClient, String collectionName) {
         this.milvusClient = milvusClient;
         this.collectionName = collectionName;
+        this.sparseAvailable = detectSparseField(milvusClient, collectionName);
+    }
+
+    /** 启动时探测 collection 是否含 sparse_vector 字段 */
+    private static boolean detectSparseField(MilvusClientV2 client, String collectionName) {
+        try {
+            DescribeCollectionResp desc = client.describeCollection(
+                    DescribeCollectionReq.builder().collectionName(collectionName).build());
+            boolean hasSparse = desc.getFieldNames() != null && desc.getFieldNames().contains(SPARSE_FIELD);
+            if (!hasSparse) {
+                log.warn("Collection {} has no {} field, sparse recall will return empty",
+                        collectionName, SPARSE_FIELD);
+            }
+            return hasSparse;
+        } catch (Exception e) {
+            log.warn("Cannot check {} field of collection {}: {}",
+                    SPARSE_FIELD, collectionName, e.getMessage());
+            return false;
+        }
     }
 
     @Override
@@ -35,11 +62,14 @@ public class SparseRecallStrategy implements RecallStrategy {
 
     @Override
     public List<EmbeddingMatch<TextSegment>> recall(String query, int topK) {
+        if (!sparseAvailable) {
+            return List.of();
+        }
         try {
             SearchReq req = SearchReq.builder()
                     .collectionName(collectionName)
                     .data(Collections.singletonList(new EmbeddedText(query)))
-                    .annsField("sparse_vector")
+                    .annsField(SPARSE_FIELD)
                     .topK(topK)
                     .outputFields(List.of("text", "file_name", "absolute_directory_path"))
                     .build();

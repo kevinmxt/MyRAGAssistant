@@ -242,7 +242,7 @@ async function refreshDocuments() {
                     html += '<div class="doc-meta">' + escapeHtml(doc.directory) + '</div>';
                 }
                 html += '<button class="kg-btn-small" onclick="buildKgForDocument(\'' +
-                    escapeAttr(doc.fileName) + '\')" title="构建知识图谱">构建图谱</button>';
+                    escapeAttr(escapeHtml(doc.fileName)) + '\')" title="构建知识图谱">构建图谱</button>';
                 html += '</div>';
             });
             documentList.innerHTML = html;
@@ -456,6 +456,7 @@ async function buildKgForCurrentDir() {
 async function refreshKgStatus() {
     try {
         const response = await fetch('/api/kg/status');
+        if (!response.ok) throw new Error('not available: ' + response.status);
         const data = await response.json();
         const statusEl = document.getElementById('kgGlobalStatus');
         const actionsEl = document.getElementById('kgActions');
@@ -470,6 +471,9 @@ async function refreshKgStatus() {
             }
         }
     } catch (e) {
-        // KG endpoint not available — hide
+        // KG not available — hide all KG UI
+        document.querySelectorAll('.kg-btn-small').forEach(b => b.style.display = 'none');
+        const actionsEl = document.getElementById('kgActions');
+        if (actionsEl) actionsEl.style.display = 'none';
     }
 }

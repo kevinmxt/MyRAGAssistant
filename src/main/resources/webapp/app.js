@@ -31,6 +31,7 @@ const DEFAULT_SUPPORTED_EXTENSIONS = [
 document.addEventListener('DOMContentLoaded', () => {
     refreshDocuments();
     showSupportedFormats();
+    refreshKgStatus();
 });
 
 // Display supported formats hint
@@ -240,6 +241,8 @@ async function refreshDocuments() {
                 if (doc.directory) {
                     html += '<div class="doc-meta">' + escapeHtml(doc.directory) + '</div>';
                 }
+                html += '<button class="kg-btn-small" onclick="buildKgForDocument(\'' +
+                    escapeAttr(doc.fileName) + '\')" title="构建知识图谱">构建图谱</button>';
                 html += '</div>';
             });
             documentList.innerHTML = html;
@@ -411,4 +414,62 @@ function selectManualPath() {
  */
 function escapeAttr(str) {
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ==================== 知识图谱构建 ====================
+
+async function buildKgForDocument(docName) {
+    try {
+        const response = await fetch('/api/kg/build/' + encodeURIComponent(docName), {
+            method: 'POST'
+        });
+        const data = await response.json();
+        if (data.success) {
+            alert('图谱构建已触发：' + docName);
+        } else {
+            alert('构建失败：' + JSON.stringify(data.status));
+        }
+        refreshKgStatus();
+    } catch (error) {
+        alert('请求失败：' + error.message);
+    }
+}
+
+async function buildKgForCurrentDir() {
+    const dir = ingestDir.value.trim() || '';
+    try {
+        const response = await fetch('/api/kg/build?path=' + encodeURIComponent(dir), {
+            method: 'POST'
+        });
+        const data = await response.json();
+        if (data.success) {
+            alert('批量构建已触发，状态：' + data.status.buildStatus);
+        } else {
+            alert('构建失败：' + JSON.stringify(data.status));
+        }
+        refreshKgStatus();
+    } catch (error) {
+        alert('请求失败：' + error.message);
+    }
+}
+
+async function refreshKgStatus() {
+    try {
+        const response = await fetch('/api/kg/status');
+        const data = await response.json();
+        const statusEl = document.getElementById('kgGlobalStatus');
+        const actionsEl = document.getElementById('kgActions');
+        if (statusEl && actionsEl) {
+            actionsEl.style.display = 'block';
+            if (data.built) {
+                statusEl.textContent = '图谱就绪 (' + (data.indexedDocuments || []).length + ' 个文档)';
+                statusEl.className = 'kg-status ready';
+            } else {
+                statusEl.textContent = '状态: ' + (data.buildStatus || '未构建');
+                statusEl.className = 'kg-status';
+            }
+        }
+    } catch (e) {
+        // KG endpoint not available — hide
+    }
 }

@@ -645,3 +645,43 @@ header h1 {
 .manual-path .input-row button:hover {
     background: var(--primary-hover);
 }
+
+/* KG 构建按钮 */
+.kg-btn {
+    padding: 6px 14px;
+    background: #7c3aed;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.kg-btn:hover { background: #6d28d9; }
+
+.kg-btn-small {
+    padding: 3px 10px;
+    margin-top: 4px;
+    background: #f3e8ff;
+    color: #7c3aed;
+    border: 1px solid #d8b4fe;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.kg-btn-small:hover { background: #ede9fe; }
+
+.kg-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.kg-status {
+    font-size: 12px;
+    color: #6b7280;
+}
+.kg-status.ready {
+    color: #059669;
+    font-weight: 500;
+}

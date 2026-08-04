@@ -36,6 +36,10 @@
                         <h3>已索引文档</h3>
                         <button id="refreshBtn" onclick="refreshDocuments()" title="刷新">↻</button>
                     </div>
+                    <div class="kg-actions" id="kgActions" style="display:none;">
+                        <button onclick="buildKgForCurrentDir()" class="kg-btn">批量构建图谱</button>
+                        <span id="kgGlobalStatus" class="kg-status"></span>
+                    </div>
                     <div id="documentList" class="document-list">
                         <div class="empty-state">点击刷新加载文档列表</div>
                     </div>

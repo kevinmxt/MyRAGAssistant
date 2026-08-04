@@ -11,9 +11,18 @@ import java.util.List;
  */
 public class ContextualEnricher {
 
+    /** 短于此值的 chunk 跳过前缀，避免前缀支配嵌入向量 */
+    private static final int MIN_CHUNK_SIZE_FOR_PREFIX = 50;
+
     public List<TextSegment> enrich(List<TextSegment> segments, String fileName) {
         List<TextSegment> enriched = new ArrayList<>();
         for (TextSegment segment : segments) {
+            String text = segment.text();
+            if (text.length() < MIN_CHUNK_SIZE_FOR_PREFIX) {
+                enriched.add(segment);
+                continue;
+            }
+
             String headingPath = segment.metadata().getString("heading_path");
 
             StringBuilder prefix = new StringBuilder();
@@ -21,7 +30,7 @@ public class ContextualEnricher {
             if (headingPath != null && !headingPath.isEmpty()) {
                 prefix.append(" ").append(headingPath);
             }
-            String enrichedText = prefix.append("\n").append(segment.text()).toString();
+            String enrichedText = prefix.append("\n").append(text).toString();
 
             enriched.add(TextSegment.from(enrichedText, segment.metadata()));
         }

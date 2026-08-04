@@ -82,7 +82,12 @@ public class SemanticSplitter implements SplitStrategy {
             }
         }
 
-        return result.isEmpty() ? List.of(TextSegment.from(markdownContent)) : result;
+        if (result.isEmpty()) {
+            return List.of(TextSegment.from(markdownContent));
+        }
+
+        // 后合并：相邻过短 chunk 合并，避免语义切分产生碎片
+        return mergeShortChunks(result, targetChunkSize);
     }
 
     private double cosineSimilarity(Embedding a, Embedding b) {
@@ -113,5 +118,25 @@ public class SemanticSplitter implements SplitStrategy {
             segments.add(TextSegment.from(current.toString().trim()));
         }
         return segments.isEmpty() ? List.of(TextSegment.from(text)) : segments;
+    }
+
+    /**
+     * 合并相邻过短 chunk，确保每个 chunk 至少达到 minChunkSize。
+     * 合并时累加后续 chunk 直到达到最小长度或耗尽。
+     */
+    static List<TextSegment> mergeShortChunks(List<TextSegment> chunks, int targetChunkSize) {
+        int minChunkSize = Math.max(50, targetChunkSize / 10);
+        List<TextSegment> merged = new ArrayList<>();
+        int i = 0;
+        while (i < chunks.size()) {
+            StringBuilder acc = new StringBuilder(chunks.get(i).text());
+            while (acc.length() < minChunkSize && i + 1 < chunks.size()) {
+                i++;
+                acc.append("\n\n").append(chunks.get(i).text());
+            }
+            merged.add(TextSegment.from(acc.toString().trim()));
+            i++;
+        }
+        return merged;
     }
 }

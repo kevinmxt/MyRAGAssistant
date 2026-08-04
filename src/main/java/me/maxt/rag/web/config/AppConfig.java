@@ -25,7 +25,7 @@ import java.util.Map;
  * @author maxt
  * @since 1.0
  */
-public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig {
+public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
@@ -134,6 +134,32 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** 向量维度，可通过环境变量 RAG_MILVUS_DIMENSION 覆盖 */
     private int milvusDimension;
 
+    // ========== 多路召回参数 ==========
+
+    /** 是否启用多路召回，可通过环境变量 RAG_MULTI_RECALL_ENABLED 覆盖 */
+    private boolean multiRecallEnabled;
+
+    /** 启用的召回模式列表（如 dense/sparse/graph），可通过环境变量 RAG_MULTI_RECALL_MODES（逗号分隔）覆盖 */
+    private List<String> recallModes;
+
+    /** 最终返回给 LLM 的结果数，可通过环境变量 RAG_MULTI_RECALL_TOP_K 覆盖 */
+    private int recallTopK;
+
+    /** RRF 融合参数 k，可通过环境变量 RAG_MULTI_RECALL_RRF_K 覆盖 */
+    private int recallRrfK;
+
+    /** LightRAG Python 可执行文件路径，可通过环境变量 RAG_LIGHTRAG_PYTHON 覆盖 */
+    private String lightRagPythonPath;
+
+    /** LightRAG 工作目录，可通过环境变量 RAG_LIGHTRAG_WORKDIR 覆盖 */
+    private String lightRagWorkingDir;
+
+    /** LightRAG 嵌入模型路径，可通过环境变量 RAG_LIGHTRAG_EMBEDDING 覆盖 */
+    private String lightRagEmbeddingModelPath;
+
+    /** LightRAG 查询模式，可通过环境变量 RAG_LIGHTRAG_QUERY_MODE 覆盖 */
+    private String lightRagQueryMode;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -169,6 +195,14 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.milvusPort = 19530;
         this.milvusCollectionName = "rag_knowledge_base";
         this.milvusDimension = 512;
+        this.multiRecallEnabled = false;
+        this.recallModes = List.of("dense");
+        this.recallTopK = 5;
+        this.recallRrfK = 60;
+        this.lightRagPythonPath = "python";
+        this.lightRagWorkingDir = "data/kg";
+        this.lightRagEmbeddingModelPath = "models/bge-small-zh-v1.5";
+        this.lightRagQueryMode = "hybrid";
     }
 
     /**
@@ -275,6 +309,27 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             config.rrfK = getInt(queryEnhancement, "rrfK", config.rrfK);
             config.hydeMaxTokens = getInt(queryEnhancement, "hydeMaxTokens", config.hydeMaxTokens);
         }
+
+        Map<String, Object> multiRecall = (Map<String, Object>) fileConfig.get("multiRecall");
+        if (multiRecall != null) {
+            config.multiRecallEnabled = getBoolean(multiRecall, "enabled", config.multiRecallEnabled);
+            Object modesObj = multiRecall.get("modes");
+            if (modesObj instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<String> modesList = (List<String>) modesObj;
+                config.recallModes = modesList;
+            }
+            config.recallTopK = getInt(multiRecall, "topK", config.recallTopK);
+            config.recallRrfK = getInt(multiRecall, "rrfK", config.recallRrfK);
+
+            Map<String, Object> lightrag = (Map<String, Object>) multiRecall.get("lightrag");
+            if (lightrag != null) {
+                config.lightRagPythonPath = getString(lightrag, "pythonPath", config.lightRagPythonPath);
+                config.lightRagWorkingDir = getString(lightrag, "workingDir", config.lightRagWorkingDir);
+                config.lightRagEmbeddingModelPath = getString(lightrag, "embeddingModelPath", config.lightRagEmbeddingModelPath);
+                config.lightRagQueryMode = getString(lightrag, "queryMode", config.lightRagQueryMode);
+            }
+        }
     }
 
     /**
@@ -312,6 +367,17 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.milvusPort = envInt("RAG_MILVUS_PORT", config.milvusPort);
         config.milvusCollectionName = env("RAG_MILVUS_COLLECTION", config.milvusCollectionName);
         config.milvusDimension = envInt("RAG_MILVUS_DIMENSION", config.milvusDimension);
+        config.multiRecallEnabled = envBool("RAG_MULTI_RECALL_ENABLED", config.multiRecallEnabled);
+        String modesEnv = System.getenv("RAG_MULTI_RECALL_MODES");
+        if (modesEnv != null && !modesEnv.isEmpty()) {
+            config.recallModes = Arrays.asList(modesEnv.split(","));
+        }
+        config.recallTopK = envInt("RAG_MULTI_RECALL_TOP_K", config.recallTopK);
+        config.recallRrfK = envInt("RAG_MULTI_RECALL_RRF_K", config.recallRrfK);
+        config.lightRagPythonPath = env("RAG_LIGHTRAG_PYTHON", config.lightRagPythonPath);
+        config.lightRagWorkingDir = env("RAG_LIGHTRAG_WORKDIR", config.lightRagWorkingDir);
+        config.lightRagEmbeddingModelPath = env("RAG_LIGHTRAG_EMBEDDING", config.lightRagEmbeddingModelPath);
+        config.lightRagQueryMode = env("RAG_LIGHTRAG_QUERY_MODE", config.lightRagQueryMode);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -424,4 +490,20 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public String getMilvusCollectionName() { return milvusCollectionName; }
     /** @return 向量维度 */
     public int getMilvusDimension() { return milvusDimension; }
+    /** @return 是否启用多路召回 */
+    public boolean isMultiRecallEnabled() { return multiRecallEnabled; }
+    /** @return 启用的召回模式列表 */
+    public List<String> getRecallModes() { return recallModes; }
+    /** @return 最终返回给 LLM 的结果数 */
+    public int getRecallTopK() { return recallTopK; }
+    /** @return RRF 融合参数 k */
+    public int getRecallRrfK() { return recallRrfK; }
+    /** @return LightRAG Python 可执行文件路径 */
+    public String getLightRagPythonPath() { return lightRagPythonPath; }
+    /** @return LightRAG 工作目录 */
+    public String getLightRagWorkingDir() { return lightRagWorkingDir; }
+    /** @return LightRAG 嵌入模型路径 */
+    public String getLightRagEmbeddingModelPath() { return lightRagEmbeddingModelPath; }
+    /** @return LightRAG 查询模式 */
+    public String getLightRagQueryMode() { return lightRagQueryMode; }
 }

@@ -36,5 +36,17 @@
     "defaultMode": "auto",
     "rrfK": 60,
     "hydeMaxTokens": 200
+  },
+  "multiRecall": {
+    "enabled": false,
+    "modes": ["dense"],
+    "rrfK": 60,
+    "topK": 5,
+    "lightrag": {
+      "pythonPath": "python",
+      "workingDir": "data/kg",
+      "embeddingModelPath": "models/bge-small-zh-v1.5",
+      "queryMode": "hybrid"
+    }
   }
 }

@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 多路召回路由器。
@@ -31,22 +33,36 @@ public class MultiRecallRouter {
         List<String> effectiveModes = resolveModes(modes);
         int perStrategyTopK = config.getRecallTopK() * 2;
 
-        List<List<EmbeddingMatch<TextSegment>>> resultGroups = new ArrayList<>();
+        // 并行调用各策略：总延迟 = max(各路延迟)，单路失败/超时不影响其他路
+        List<CompletableFuture<List<EmbeddingMatch<TextSegment>>>> futures = effectiveModes.stream()
+                .map(mode -> CompletableFuture.supplyAsync(() -> {
+                    RecallStrategy strategy = strategyRegistry.get(mode);
+                    if (strategy == null) {
+                        log.warn("Unknown recall mode: {}, skipping", mode);
+                        return List.<EmbeddingMatch<TextSegment>>of();
+                    }
+                    try {
+                        List<EmbeddingMatch<TextSegment>> matches = strategy.recall(query, perStrategyTopK);
+                        log.debug("Recall mode {} returned {} results", mode, matches.size());
+                        return matches;
+                    } catch (Exception e) {
+                        log.warn("Recall strategy {} failed, skipping: {}", mode, e.getMessage());
+                        return List.<EmbeddingMatch<TextSegment>>of();
+                    }
+                }))
+                .toList();
 
-        for (String mode : effectiveModes) {
-            RecallStrategy strategy = strategyRegistry.get(mode);
-            if (strategy == null) {
-                log.warn("Unknown recall mode: {}, skipping", mode);
-                continue;
-            }
-            try {
-                List<EmbeddingMatch<TextSegment>> matches = strategy.recall(query, perStrategyTopK);
-                resultGroups.add(matches);
-                log.debug("Recall mode {} returned {} results", mode, matches.size());
-            } catch (Exception e) {
-                log.warn("Recall strategy {} failed, skipping: {}", mode, e.getMessage());
-            }
-        }
+        List<List<EmbeddingMatch<TextSegment>>> resultGroups = futures.stream()
+                .map(f -> {
+                    try {
+                        return f.get(30, TimeUnit.SECONDS);
+                    } catch (Exception e) {
+                        log.warn("Recall strategy timed out or failed: {}", e.getMessage());
+                        return List.<EmbeddingMatch<TextSegment>>of();
+                    }
+                })
+                .filter(r -> !r.isEmpty())
+                .toList();
 
         if (resultGroups.isEmpty()) {
             log.warn("All recall strategies failed or returned empty");

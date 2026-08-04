@@ -6,6 +6,7 @@ import me.maxt.rag.web.service.RAGService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -52,8 +53,17 @@ public class ChatController {
             // 解析 enhancement 参数（可选，默认 null → RAGService 内部用 config 默认值）
             String enhancement = (String) body.getOrDefault("enhancement", null);
 
-            log.info("Chat query: {} (enhancement: {})", query, enhancement);
-            RAGService.AnswerWithSources result = ragService.answerWithSources(query.trim(), enhancement);
+            // 解析 recall 参数（可选，JSON 数组，如 ["dense", "sparse", "graph"]；
+            // 默认 null → RAGService 内部用 config 默认召回模式）
+            @SuppressWarnings("unchecked")
+            List<String> recallModes = null;
+            Object recallObj = body.get("recall");
+            if (recallObj instanceof List) {
+                recallModes = (List<String>) recallObj;
+            }
+
+            log.info("Chat query: {} (enhancement: {}, recall: {})", query, enhancement, recallModes);
+            RAGService.AnswerWithSources result = ragService.answerWithSources(query.trim(), enhancement, recallModes);
 
             ctx.json(result);
         } catch (Exception e) {

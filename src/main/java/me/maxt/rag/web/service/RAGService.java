@@ -12,8 +12,10 @@ import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import me.maxt.rag.web.config.QueryEnhancementConfig;
+import me.maxt.rag.web.config.RecallConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
+import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
 import shared.Assistant;
 
 import java.util.ArrayList;
@@ -44,6 +46,8 @@ public class RAGService {
     private final Assistant assistant;
     private final QueryEnhancementRouter enhancementRouter;
     private final QueryEnhancementConfig enhancementConfig;
+    private final MultiRecallRouter multiRecallRouter;
+    private final RecallConfig recallConfig;
 
     /**
      * 创建 RAG 服务实例。
@@ -62,12 +66,23 @@ public class RAGService {
                       EmbeddingModel embeddingModel, ChatModel chatModel,
                       QueryEnhancementRouter enhancementRouter,
                       QueryEnhancementConfig enhancementConfig) {
+        this(config, storeManager, embeddingModel, chatModel,
+                enhancementRouter, enhancementConfig, null, null);
+    }
+
+    public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
+                      EmbeddingModel embeddingModel, ChatModel chatModel,
+                      QueryEnhancementRouter enhancementRouter,
+                      QueryEnhancementConfig enhancementConfig,
+                      MultiRecallRouter multiRecallRouter, RecallConfig recallConfig) {
         this.config = config;
         this.storeManager = storeManager;
         this.embeddingModel = embeddingModel;
         this.chatModel = chatModel;
         this.enhancementRouter = enhancementRouter;
         this.enhancementConfig = enhancementConfig;
+        this.multiRecallRouter = multiRecallRouter;
+        this.recallConfig = recallConfig;
 
         this.contentRetriever = storeManager.createContentRetriever(
                 embeddingModel, config.getMaxResults(), config.getMinScore());
@@ -102,6 +117,18 @@ public class RAGService {
     }
 
     public AnswerWithSources answerWithSources(String query, String enhancementMode) {
+        return answerWithSources(query, enhancementMode, null);
+    }
+
+    /**
+     * 根据用户问题生成回答，并附带检索到的文档来源。
+     *
+     * @param query 用户问题
+     * @param enhancementMode 查询增强模式（可选，null 时使用配置默认值）
+     * @param recallModes 多路召回模式列表（可选，null 时使用配置默认模式；仅 multiRecall 启用时生效）
+     * @return 包含回答文本和来源列表的结果对象
+     */
+    public AnswerWithSources answerWithSources(String query, String enhancementMode, List<String> recallModes) {
         // 解析 enhancement mode
         String mode = enhancementMode;
         if (mode == null && enhancementConfig != null) {
@@ -109,9 +136,17 @@ public class RAGService {
         }
         if (mode == null) mode = "none";
 
-        List<Source> sources = new ArrayList<>();
+        List<Source> sources;
 
-        if (enhancementRouter != null && enhancementConfig != null && enhancementConfig.isQueryEnhancementEnabled()) {
+        if (multiRecallRouter != null && recallConfig != null && recallConfig.isMultiRecallEnabled()) {
+            // 多路召回启用：按指定模式（或配置默认模式）并行召回 + RRF 融合，
+            // 替代原有 searchAndCollect 检索逻辑
+            List<String> modes = recallModes != null ? recallModes : recallConfig.getRecallModes();
+            List<EmbeddingMatch<TextSegment>> matches = multiRecallRouter.recall(query, modes);
+            sources = matches.stream()
+                    .map(this::toSource)
+                    .toList();
+        } else if (enhancementRouter != null && enhancementConfig != null && enhancementConfig.isQueryEnhancementEnabled()) {
             List<String> queryVariants = enhancementRouter.route(query, mode);
 
             if (queryVariants.size() == 1) {

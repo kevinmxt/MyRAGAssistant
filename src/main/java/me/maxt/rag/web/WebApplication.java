@@ -8,11 +8,15 @@ import dev.langchain4j.store.embedding.milvus.MilvusEmbeddingStore;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import io.milvus.common.clientenum.ConsistencyLevelEnum;
+import io.milvus.v2.client.ConnectConfig;
+import io.milvus.v2.client.MilvusClientV2;
 import me.maxt.rag.web.config.AppConfig;
 import me.maxt.rag.web.controller.ChatController;
 import me.maxt.rag.web.controller.DocumentController;
+import me.maxt.rag.web.controller.KnowledgeGraphController;
 import me.maxt.rag.web.service.DocumentService;
 import me.maxt.rag.web.service.EmbeddingStoreManager;
+import me.maxt.rag.web.service.KnowledgeGraphService;
 import me.maxt.rag.web.service.RAGService;
 import me.maxt.rag.web.service.chunking.ChunkingPipeline;
 import me.maxt.rag.web.service.chunking.analyzer.StructureAnalyzer;
@@ -26,9 +30,16 @@ import me.maxt.rag.web.service.vector.ContextualEnricher;
 import me.maxt.rag.web.service.vector.HyDEGenerator;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import me.maxt.rag.web.service.vector.QueryRewriter;
+import me.maxt.rag.web.service.vector.recall.DenseRecallStrategy;
+import me.maxt.rag.web.service.vector.recall.GraphRecallStrategy;
+import me.maxt.rag.web.service.vector.recall.LightRagBridge;
+import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
+import me.maxt.rag.web.service.vector.recall.RecallStrategy;
+import me.maxt.rag.web.service.vector.recall.SparseRecallStrategy;
 
 import java.io.File;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -45,6 +56,11 @@ public class WebApplication {
     private final DocumentService documentService;
     private final ChatController chatController;
     private final DocumentController documentController;
+
+    // 多路召回组件（仅 config.isMultiRecallEnabled() 时非 null）
+    private final MultiRecallRouter multiRecallRouter;
+    private final KnowledgeGraphService kgService;
+    private final KnowledgeGraphController kgController;
 
     public WebApplication(AppConfig config) {
         this.config = config;
@@ -89,8 +105,37 @@ public class WebApplication {
         QueryEnhancementRouter enhancementRouter = new QueryEnhancementRouter(
                 queryRewriter, hydeGenerator, chatModel, config);
 
+        // 多路召回组件组装（条件启用，默认 disabled 时全部为 null，行为与原来完全一致）
+        MultiRecallRouter multiRecallRouter = null;
+        KnowledgeGraphService kgService = null;
+        KnowledgeGraphController kgController = null;
+
+        if (config.isMultiRecallEnabled()) {
+            // 召回策略注册表
+            Map<String, RecallStrategy> registry = new LinkedHashMap<>();
+            registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
+            registry.put("sparse", new SparseRecallStrategy(
+                    getMilvusClient(), config.getMilvusCollectionName()));
+
+            // LightRAG 知识图谱
+            kgService = new KnowledgeGraphService(config, storeManager);
+            LightRagBridge lightRagBridge = new LightRagBridge(
+                    config.getLightRagPythonPath(), config.getLightRagWorkingDir(),
+                    config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode());
+            lightRagBridge.init();
+            registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
+                    config.getLightRagQueryMode()));
+
+            multiRecallRouter = new MultiRecallRouter(config, registry);
+            kgController = new KnowledgeGraphController(kgService);
+        }
+
+        this.multiRecallRouter = multiRecallRouter;
+        this.kgService = kgService;
+        this.kgController = kgController;
+
         this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel,
-                enhancementRouter, config);
+                enhancementRouter, config, multiRecallRouter, config);
 
         // ContextualEnricher：嵌入前用 LLM 为每个 chunk 添加上下文
         ContextualEnricher contextualEnricher = new ContextualEnricher();
@@ -124,6 +169,13 @@ public class WebApplication {
         app.get("/api/documents", documentController::handleListDocuments);
         app.post("/api/browse", documentController::handleBrowse);
 
+        // 知识图谱路由（仅多路召回启用时注册）
+        if (kgController != null) {
+            app.post("/api/kg/build", kgController::handleBuildForDirectory);
+            app.post("/api/kg/build/{docId}", kgController::handleBuildForDocument);
+            app.get("/api/kg/status", kgController::handleGetStatus);
+        }
+
         app.exception(Exception.class, (e, ctx) -> {
             org.slf4j.LoggerFactory.getLogger(WebApplication.class)
                     .error("Unhandled exception", e);
@@ -139,6 +191,20 @@ public class WebApplication {
         if (defaultDocDir.exists() && defaultDocDir.isDirectory()) {
             documentService.ingestDirectory(config.getDocumentDir());
         }
+    }
+
+    /**
+     * 创建 Milvus v2 原生客户端，供 SparseRecallStrategy 使用。
+     *
+     * <p>注意：langchain4j-milvus 1.12.1 的 {@link MilvusEmbeddingStore} 内部持有的是
+     * 旧版 {@code io.milvus.client.MilvusServiceClient}（v1 API），与 v2 的
+     * {@link MilvusClientV2} 无继承关系，无法通过反射复用，因此这里按配置
+     * 新建一个指向同一 Milvus 实例的 v2 客户端连接。</p>
+     */
+    private MilvusClientV2 getMilvusClient() {
+        return new MilvusClientV2(ConnectConfig.builder()
+                .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
+                .build());
     }
 
     public AppConfig getConfig() { return config; }

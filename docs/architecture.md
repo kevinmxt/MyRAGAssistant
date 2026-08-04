@@ -58,17 +58,8 @@ StructureAnalyzer → SplitClassifier → StructureSplitter/SemanticSplitter →
 
 ## 测试
 
-- 76 个单元测试，JUnit 5 + Mockito + AssertJ + JaCoCo
-- Service 层覆盖率 >79%
-- 只 mock 系统边界（EmbeddingModel、ChatModel），使用真实 `EmbeddingStoreManager` 实例（注入 `InMemoryEmbeddingStore`）
-- `EmbeddingStoreManagerMilvusIT` 集成测试用 Testcontainers 启动真实 Milvus，surefire 默认排除（*IT 命名约定）
-- Controllers 不单独测试（薄胶水层）
+详见 [`docs/testing.md`](testing.md)。
 
-## Gotchas
+## 环境与 Gotchas
 
-- 首次启动时 BgeSmallZhV15 ONNX 模型自动下载到本地缓存（约 100MB）
-- Milvus 需通过 `docker compose up -d` 提前启动（端口 19530）
-- MilvusEmbeddingStore 默认 consistencyLevel=EVENTUALLY，本应用显式设为 STRONG 保证写入立即可查
-- 默认端口 8080，冲突时通过 `server.port` 或 `RAG_SERVER_PORT` 修改
-- config.json 放在工作目录（与 JAR 同目录）
-- 环境变量优先级高于 config.json
+详见 [`docs/environment.md`](environment.md)。

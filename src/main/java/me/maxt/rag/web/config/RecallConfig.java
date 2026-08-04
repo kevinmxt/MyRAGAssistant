@@ -17,4 +17,7 @@ public interface RecallConfig {
     String getLightRagWorkingDir();
     String getLightRagEmbeddingModelPath();
     String getLightRagQueryMode();
+
+    /** Milvus collection 名称，KnowledgeGraphService 构建图谱时按 file_name 回查文档文本 */
+    String getMilvusCollectionName();
 }

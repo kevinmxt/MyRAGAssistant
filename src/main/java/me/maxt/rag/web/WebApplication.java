@@ -113,16 +113,18 @@ public class WebApplication {
         if (config.isMultiRecallEnabled()) {
             // 召回策略注册表
             Map<String, RecallStrategy> registry = new LinkedHashMap<>();
+            MilvusClientV2 milvusClientV2 = getMilvusClient();
             registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
             registry.put("sparse", new SparseRecallStrategy(
-                    getMilvusClient(), config.getMilvusCollectionName()));
+                    milvusClientV2, config.getMilvusCollectionName()));
 
-            // LightRAG 知识图谱
-            kgService = new KnowledgeGraphService(config, storeManager);
+            // LightRAG 知识图谱（JPype 桥接，复用 LLM 配置）
             LightRagBridge lightRagBridge = new LightRagBridge(
                     config.getLightRagPythonPath(), config.getLightRagWorkingDir(),
-                    config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode());
+                    config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode(),
+                    config.getApiKey(), config.getBaseUrl(), config.getModelName());
             lightRagBridge.init();
+            kgService = new KnowledgeGraphService(config, storeManager, milvusClientV2, lightRagBridge);
             registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
                     config.getLightRagQueryMode()));
 

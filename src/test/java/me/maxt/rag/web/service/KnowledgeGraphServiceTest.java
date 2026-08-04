@@ -18,8 +18,9 @@ class KnowledgeGraphServiceTest {
         when(config.getLightRagPythonPath()).thenReturn("python");
         when(config.getLightRagEmbeddingModelPath()).thenReturn("models/bge");
         when(config.getLightRagQueryMode()).thenReturn("hybrid");
+        when(config.getMilvusCollectionName()).thenReturn("rag_knowledge_base");
 
-        KnowledgeGraphService service = new KnowledgeGraphService(config, null);
+        KnowledgeGraphService service = new KnowledgeGraphService(config, null, null, null);
         Map<String, Object> status = service.getStatus();
 
         assertThat(status.get("built")).isEqualTo(false);

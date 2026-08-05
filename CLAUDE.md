@@ -5,7 +5,7 @@
 | 命令 | 用途 |
 |------|------|
 | `mvn compile` | 编译 |
-| `mvn test` | 运行 78 个单元测试 |
+| `mvn test` | 运行 100 个单元测试 |
 | `mvn test jacoco:report` | 覆盖率报告 → `target/site/jacoco/index.html` |
 | `mvn clean package` | 构建 Fat JAR |
 | `docker compose up -d` | 启动 Milvus（首次运行前必须） |
@@ -29,10 +29,14 @@
 
 - `me.maxt.rag.web.App` — 应用入口（5 行胶水代码）
 - `me.maxt.rag.web.WebApplication` — 启动组装工厂（依赖创建 + 路由注册）
-- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 6 个接口
+- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 7 个接口
 - `me.maxt.rag.web.service.chunking.ChunkingPipeline` — 自适应文档切分管线入口
 - `me.maxt.rag.web.service.vector.QueryEnhancementRouter` — 查询增强路由器（改写/HyDE/RRF）
 - `me.maxt.rag.web.service.vector.ContextualEnricher` — 上下文增强器（chunk 前缀）
+- `me.maxt.rag.web.service.vector.RrfFusion` — RRF 融合工具类（2路/N路）
+- `me.maxt.rag.web.service.vector.recall.MultiRecallRouter` — 多路召回路由器（Dense+Sparse+Graph 并行）
+- `me.maxt.rag.web.service.vector.recall.LightRagBridge` — Python LightRAG 子进程桥接
+- `me.maxt.rag.web.service.KnowledgeGraphService` — LightRAG 知识图谱构建和管理
 
 ## 对话
 

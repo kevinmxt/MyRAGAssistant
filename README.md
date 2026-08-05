@@ -1,6 +1,6 @@
 # MyAIDemo2 - 本地知识库智能问答系统
 
-基于 LangChain4j + DeepSeek + Javalin 的本地知识库智能问答系统，支持多模态文档索引和检索增强生成（RAG）。
+基于 LangChain4j + DeepSeek + Javalin + Milvus 的本地知识库智能问答系统，支持多模态文档索引、多路召回（稠密+稀疏+知识图谱）和检索增强生成（RAG）。
 
 ## 项目简介
 
@@ -29,6 +29,8 @@
 - **中文嵌入优化** — 本地 ONNX 中文嵌入模型（BgeSmallZhV15，512 维），检索精度更高
 - **上下文增强** — 嵌入前为每个 chunk 附加文档名和章节路径，让向量感知上下文
 - **查询增强** — LLM 驱动的查询改写 + HyDE（假设文档生成）+ RRF 融合，智能适配不同问题类型
+- **多路召回** — 可选的混合召回架构：稠密向量 + 稀疏 BM25 + 知识图谱三路并行检索，RRF 融合提升召回覆盖率
+- **知识图谱** — 集成 LightRAG，支持从已索引文档构建知识图谱，提供实体关系感知的图谱检索
 - **自动向量化** — 本地 ONNX 模型生成嵌入向量，支持批量处理
 - **向量数据持久化** — 向量数据存储于 Milvus，通过 Docker volume 持久化，重启后自动恢复
 - **RAG 智能问答** — 基于检索增强生成的智能问答，答案附带参考来源
@@ -145,6 +147,14 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `queryEnhancement.defaultMode` | string | `"auto"` | 默认增强模式：`auto`/`rewrite`/`hyde`/`both`/`none` |
 | `queryEnhancement.rrfK` | number | `60` | RRF 融合参数 k |
 | `queryEnhancement.hydeMaxTokens` | number | `200` | HyDE 生成文本最大 token 数 |
+| `multiRecall.enabled` | boolean | `false` | 是否启用多路召回 |
+| `multiRecall.modes` | array | `["dense"]` | 启用的召回模式：`dense`/`sparse`/`graph` |
+| `multiRecall.topK` | number | `5` | 多路召回最终返回结果数 |
+| `multiRecall.rrfK` | number | `60` | 多路召回 RRF 融合参数 k |
+| `multiRecall.lightrag.pythonPath` | string | `"python"` | LightRAG Python 可执行文件路径 |
+| `multiRecall.lightrag.workingDir` | string | `"data/kg"` | LightRAG 工作目录 |
+| `multiRecall.lightrag.embeddingModelPath` | string | `"models/bge-small-zh-v1.5"` | LightRAG 嵌入模型路径 |
+| `multiRecall.lightrag.queryMode` | string | `"hybrid"` | LightRAG 查询模式 |
 | `chat.memorySize` | number | `10` | 对话记忆窗口（消息数） |
 | `server.port` | number | `8080` | HTTP 服务端口 |
 | `milvus.host` | string | `"localhost"` | Milvus 服务地址 |
@@ -184,6 +194,14 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `RAG_QUERY_ENHANCEMENT_MODE` | `queryEnhancement.defaultMode` |
 | `RAG_QUERY_ENHANCEMENT_RRF_K` | `queryEnhancement.rrfK` |
 | `RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS` | `queryEnhancement.hydeMaxTokens` |
+| `RAG_MULTI_RECALL_ENABLED` | `multiRecall.enabled` |
+| `RAG_MULTI_RECALL_MODES` | `multiRecall.modes`（逗号分隔） |
+| `RAG_MULTI_RECALL_TOP_K` | `multiRecall.topK` |
+| `RAG_MULTI_RECALL_RRF_K` | `multiRecall.rrfK` |
+| `RAG_LIGHTRAG_PYTHON` | `multiRecall.lightrag.pythonPath` |
+| `RAG_LIGHTRAG_WORKDIR` | `multiRecall.lightrag.workingDir` |
+| `RAG_LIGHTRAG_EMBEDDING` | `multiRecall.lightrag.embeddingModelPath` |
+| `RAG_LIGHTRAG_QUERY_MODE` | `multiRecall.lightrag.queryMode` |
 
 ## API 文档
 
@@ -204,10 +222,11 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 ```json
 {
   "query": "这份文档的主要内容是什么？",
-  "enhancement": "auto"
+  "enhancement": "auto",
+  "recall": ["dense", "sparse"]
 }
 ```
-`enhancement` 可选，默认 `null`（由 `queryEnhancement.defaultMode` 决定），可选值：`auto`/`rewrite`/`hyde`/`both`/`none`。
+`enhancement` 可选，默认 `null`（由 `queryEnhancement.defaultMode` 决定），可选值：`auto`/`rewrite`/`hyde`/`both`/`none`。`recall` 可选，默认 `null`（由 `multiRecall.modes` 决定），可选值：`["dense"]`/`["dense","sparse"]`/`["dense","sparse","graph"]`。
 
 **响应：**
 ```json
@@ -277,6 +296,33 @@ path 为空时返回根目录（Windows 返回驱动器列表）。
 }
 ```
 
+### `POST /api/kg/build?path=<directory>`
+
+触发按目录构建知识图谱（需启用多路召回 `multiRecall.enabled: true`）。
+
+**响应：**
+```json
+{"success": true, "status": {"built": true, "buildStatus": "completed", "indexedDocuments": ["doc1.pdf"]}}
+```
+
+### `POST /api/kg/build/{docId}`
+
+为单个已索引文档构建知识图谱。
+
+**响应：**
+```json
+{"success": true, "status": {...}}
+```
+
+### `GET /api/kg/status`
+
+查询知识图谱构建状态。
+
+**响应：**
+```json
+{"built": true, "buildStatus": "completed", "indexedDocuments": ["doc1.pdf"], "workingDir": "data/kg"}
+```
+
 ## 项目结构
 
 ```
@@ -293,28 +339,41 @@ MyAIDemo2/
     │       ├── Easy_RAG_Example2.java
     │       ├── Naive_RAG_Example.java
     │       └── web/
-    │           ├── App.java            # 应用入口（薄胶水层）
-│           ├── WebApplication.java  # 启动组装工厂
+    │           ├── App.java              # 应用入口（薄胶水层）
+    │           ├── WebApplication.java   # 启动组装工厂
     │           ├── config/
-    │           │   ├── AppConfig.java          # 配置实现
-│           │   ├── LlmConfig.java           # LLM 配置接口
-│           │   ├── RetrievalConfig.java     # 检索配置接口
-│           │   ├── DocumentConfig.java         # 文档配置接口
-│           │   ├── QueryEnhancementConfig.java # 查询增强配置接口
-│           │   └── ServerConfig.java           # 服务器配置接口
+    │           │   ├── AppConfig.java               # 配置实现（7 个接口）
+    │           │   ├── LlmConfig.java               # LLM 配置接口
+    │           │   ├── RetrievalConfig.java         # 检索配置接口
+    │           │   ├── DocumentConfig.java          # 文档配置接口
+    │           │   ├── QueryEnhancementConfig.java  # 查询增强配置接口
+    │           │   ├── ServerConfig.java            # 服务器配置接口
+    │           │   ├── MilvusConfig.java            # Milvus 配置接口
+    │           │   ├── RecallConfig.java            # 多路召回 + LightRAG 配置接口
+    │           │   └── ChunkingConfig.java          # 切分配置接口
     │           ├── controller/
-    │           │   ├── ChatController.java     # 对话 API
-    │           │   └── DocumentController.java # 文档管理 API
+    │           │   ├── ChatController.java            # 对话 API
+    │           │   ├── DocumentController.java        # 文档管理 API
+    │           │   └── KnowledgeGraphController.java  # KG 构建和管理 API
     │           └── service/
-    │               ├── DocumentService.java       # 文档摄入/浏览/列表服务
-    │               ├── EmbeddingStoreManager.java # 向量存储管理
-    │               ├── RAGService.java            # RAG 核心服务
+    │               ├── DocumentService.java        # 文档摄入/浏览/列表服务
+    │               ├── EmbeddingStoreManager.java  # 向量存储管理
+    │               ├── RAGService.java             # RAG 核心服务
+    │               ├── KnowledgeGraphService.java  # LightRAG 知识图谱服务
     │               ├── vector/
     │               │   ├── ContextualEnricher.java       # 上下文增强器
     │               │   ├── QueryEnhancer.java            # 查询增强接口
     │               │   ├── QueryRewriter.java            # LLM 查询改写
     │               │   ├── HyDEGenerator.java            # 假设文档生成
-    │               │   └── QueryEnhancementRouter.java   # 增强路由器 + RRF 融合
+    │               │   ├── QueryEnhancementRouter.java   # 增强路由器
+    │               │   ├── RrfFusion.java                # RRF 融合工具类
+    │               │   └── recall/
+    │               │       ├── RecallStrategy.java        # 召回策略接口
+    │               │       ├── DenseRecallStrategy.java   # 稠密向量检索
+    │               │       ├── SparseRecallStrategy.java  # Milvus BM25 稀疏检索
+    │               │       ├── GraphRecallStrategy.java   # LightRAG 图谱检索
+    │               │       ├── MultiRecallRouter.java     # 多路召回路由器
+    │               │       └── LightRagBridge.java        # Python LightRAG 桥接
     │               └── chunking/
     │                   ├── ChunkingPipeline.java   # 切分管线编排
     │                   ├── DocStructure.java等     # 数据结构
@@ -337,13 +396,22 @@ MyAIDemo2/
             │   └── AppConfigTest.java                 # 配置测试
             ├── service/
             │   ├── EmbeddingStoreManagerTest.java      # 存储管理测试
+            │   ├── EmbeddingStoreManagerMilvusIT.java  # Milvus 集成测试
             │   ├── DocumentServiceTest.java            # 文档服务测试
             │   ├── RAGServiceTest.java                 # RAG 服务测试
+            │   ├── KnowledgeGraphServiceTest.java      # KG 服务测试
             │   ├── vector/
             │   │   ├── ContextualEnricherTest.java       # 上下文增强器测试
             │   │   ├── QueryRewriterTest.java           # 查询改写测试
             │   │   ├── HyDEGeneratorTest.java           # 假设文档生成测试
-            │   │   └── QueryEnhancementRouterTest.java  # 增强路由器测试
+            │   │   ├── QueryEnhancementRouterTest.java  # 增强路由器测试
+            │   │   ├── RrfFusionTest.java               # RRF 融合测试
+            │   │   └── recall/
+            │   │       ├── DenseRecallStrategyTest.java   # 稠密召回测试
+            │   │       ├── SparseRecallStrategyTest.java  # 稀疏召回测试
+            │   │       ├── GraphRecallStrategyTest.java   # 图谱召回测试
+            │   │       ├── MultiRecallRouterTest.java     # 多路召回路由器测试
+            │   │       └── MultiRecallRouterIT.java       # 多路召回集成测试
             │   └── chunking/
             │       ├── ChunkingPipelineTest.java       # 管线测试
             │       ├── analyzer/

@@ -8,16 +8,19 @@
 
 - **Tesseract OCR** — PNG/JPG 图像提取文字需要
 - **Pandoc** — PDF/DOCX 高质量转 Markdown 需要
+- **Python 3.10+** — 启用多路召回/知识图谱功能时需要（LightRAG 依赖），需安装 `lightrag` 包和本地嵌入模型
 
 ## 技术栈
 
 - 嵌入模型：**BgeSmallZhV15**（ONNX 本地推理，512 维，中文优化）
 - 向量数据库：**Milvus**（Docker standalone，端口 19530）
+- 知识图谱：**LightRAG**（Python 子进程桥接，可选启用）
 - 首次启动时 ONNX 模型自动下载到本地缓存（约 100MB）
 
 ## 配置优先级
 
 环境变量优先级高于 `config.json`。`config.json` 放在工作目录（与 JAR 同目录）。
+多路召回（`multiRecall.*`）默认关闭，需显式 `enabled: true` 才会初始化 LightRAG 子进程。详见 `config.example.json`。
 
 ## 常见问题
 

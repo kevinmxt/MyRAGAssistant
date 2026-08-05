@@ -8,19 +8,19 @@
 
 ## EmbeddingStoreManager
 
-构造函数注入 `EmbeddingStore<TextSegment>` 接口，生产环境注入 `MilvusEmbeddingStore`，测试注入 `InMemoryEmbeddingStore`。内部维护轻量级 `docIndex`（ConcurrentHashMap）追踪文档元数据（文件名、类型、目录、片段数）。`StoredEntry` 和 JSON 文件持久化已删除——持久化由 Milvus Docker volume 负责。
+构造函数注入 `EmbeddingStore<TextSegment>` 接口，生产环境注入 `MilvusEmbeddingStore`，测试注入 `InMemoryEmbeddingStore`。内部维护轻量级 `docIndex`（ConcurrentHashMap）追踪文档元数据（文件名、类型、目录、片段数）。持久化由 Milvus Docker volume 负责。
 
 ## 配置接口
 
-`AppConfig` 拆分为 6 个聚焦接口：`LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig`、`QueryEnhancementConfig`、`MilvusConfig`。每个 consumer 只依赖它需要的接口。
+`AppConfig` 拆分为 7 个聚焦接口：`LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig`、`QueryEnhancementConfig`、`MilvusConfig`、`RecallConfig`。每个 consumer 只依赖它需要的接口。
 
 ## 启动组装
 
-`WebApplication` 封装所有依赖创建和路由注册逻辑，`App.main()` 从 90 行缩减为 5 行胶水代码。wiring 和运行时之间有清晰的 seam，启动逻辑可脱离 `main()` 独立测试。
+`WebApplication` 封装所有依赖创建和路由注册逻辑，`App.main()` 保持 5 行胶水代码。wiring 和运行时之间有清晰的 seam，启动逻辑可脱离 `main()` 独立测试。多路召回组件在 `multiRecall.enabled` 为 true 时才组装，否则为 null，行为与原有逻辑完全一致。
 
 ## 控制器薄层
 
-`ChatController` 和 `DocumentController` 只做 JSON↔对象的转换，业务逻辑全部下沉到 `RAGService` 和 `DocumentService`。
+`ChatController`、`DocumentController` 和 `KnowledgeGraphController` 只做 JSON↔对象的转换，业务逻辑全部下沉到 `RAGService`、`DocumentService` 和 `KnowledgeGraphService`。
 
 ## 智能文档切分（Chunking Pipeline）
 
@@ -35,7 +35,7 @@ StructureAnalyzer → SplitClassifier → StructureSplitter/SemanticSplitter →
 | `StructureAnalyzer` | 基于 flexmark 提取 Markdown 标题层级结构 |
 | `SplitClassifier` | 根据文档特征（结构丰富度、段落密度）选择切分策略 |
 | `StructureSplitter` | 按标题层级切分文档 |
-| `SemanticSplitter` | 基于 embedding 余弦相似度断点切分 |
+| `SemanticSplitter` | 基于 embedding 余弦相似度断点切分（含后合并阶段防止过度碎片化） |
 | `AgentRefiner` | 小模型驱动的切分精炼器，合并过短片段 |
 | `MarkdownConverter` | 多格式转 Markdown（Pandoc + Tika 降级） |
 | `ChunkEvaluator` | 切分质量评估 |
@@ -52,9 +52,40 @@ StructureAnalyzer → SplitClassifier → StructureSplitter/SemanticSplitter →
 | `QueryEnhancer` | 增强策略接口，定义 `enhance(query)` → `List<String>` |
 | `QueryRewriter` | LLM 改写简短口语化问题 |
 | `HyDEGenerator` | 生成假设性答案作为增强查询变体 |
-| `QueryEnhancementRouter` | 根据模式（auto/rewrite/hyde/both/none）路由到对应策略，包含 RRF 融合 |
+| `QueryEnhancementRouter` | 根据模式（auto/rewrite/hyde/both/none）路由到对应策略 |
+| `RrfFusion` | 独立的 RRF（Reciprocal Rank Fusion）融合工具类，支持 2 路和 N 路融合 |
 
 `RAGService` 集成 `QueryEnhancementRouter`，多查询变体结果通过文本去重 + 最高分保留融合。
+
+## 多路召回（Multi Recall）
+
+`service/vector/recall/` 包实现了可插拔的多策略召回架构：
+
+```
+MultiRecallRouter → [DenseRecallStrategy, SparseRecallStrategy, GraphRecallStrategy] → RrfFusion
+```
+
+| 组件 | 职责 |
+|------|------|
+| `RecallStrategy` | 召回策略接口，定义 `name()` + `recall(query, topK)` |
+| `DenseRecallStrategy` | 稠密向量检索，委托 `EmbeddingStoreManager` 的 ONNX embedding 搜索 |
+| `SparseRecallStrategy` | Milvus 原生 BM25 稀疏检索，启动时探测 `sparse_vector` 字段，缺失时自动降级 |
+| `GraphRecallStrategy` | 通过 `LightRagBridge` 调用 LightRAG 知识图谱检索，图谱未构建时自动降级 |
+| `MultiRecallRouter` | 并行调用各策略（CompletableFuture + 30s 超时），RRF 融合后返回 topK 结果 |
+| `LightRagBridge` | Python LightRAG 常驻子进程桥接（JSON 协议），负责 insert/query |
+
+**降级容错**：单路策略失败或超时不影响其他路；所有策略均失败时返回空列表。
+
+**启用方式**：配置 `multiRecall.enabled: true`，通过 `multiRecall.modes` 指定启用模式（dense/sparse/graph）。
+
+## 知识图谱（Knowledge Graph）
+
+| 组件 | 职责 |
+|------|------|
+| `KnowledgeGraphService` | KG 构建和管理：从 Milvus 回查文档文本，通过 `LightRagBridge` 交给 Python LightRAG 建索引 |
+| `KnowledgeGraphController` | KG API 端点：按目录/单文档触发构建，查询构建状态 |
+
+图谱索引由用户通过 API 手动触发，支持按目录或单文档构建。构建状态通过 `AtomicBoolean` + `AtomicReference` 管理，线程安全。
 
 ## 测试
 

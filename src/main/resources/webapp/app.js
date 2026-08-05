@@ -249,7 +249,7 @@ async function refreshDocuments() {
             storeStatus.textContent = '存储状态: ' + documents.length + ' 个文档, ' + totalSegments + ' 个片段';
         }
     } catch (error) {
-        documentList.innerHTML = '<div class="empty-state">加载失败：' + error.message + '</div>';
+        documentList.innerHTML = '<div class="empty-state">加载失败：' + escapeHtml(error.message) + '</div>';
         storeStatus.textContent = '存储状态: 错误';
     }
 }

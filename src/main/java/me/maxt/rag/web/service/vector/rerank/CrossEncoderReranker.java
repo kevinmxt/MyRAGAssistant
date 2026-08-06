@@ -83,9 +83,10 @@ public class CrossEncoderReranker implements Reranker {
         }
 
         int n = candidates.size();
-        float[][] inputIds = new float[n][MAX_SEQ_LENGTH];
-        float[][] attentionMask = new float[n][MAX_SEQ_LENGTH];
-        float[][] tokenTypeIds = new float[n][MAX_SEQ_LENGTH];
+        // bge-reranker-v2-m3 的 token 输入是 int64，需用 long[][]（float32 会导致推理失败）
+        long[][] inputIds = new long[n][MAX_SEQ_LENGTH];
+        long[][] attentionMask = new long[n][MAX_SEQ_LENGTH];
+        long[][] tokenTypeIds = new long[n][MAX_SEQ_LENGTH];
 
         for (int i = 0; i < n; i++) {
             String passage = candidates.get(i).embedded().text();

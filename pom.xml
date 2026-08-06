@@ -161,6 +161,36 @@
 
   </dependencies>
 
+  <profiles>
+    <profile>
+      <id>evaluation</id>
+      <properties>
+        <!-- CLI 可用 -DupdateBaseline/-Dformat/-DskipAnswerQuality 覆盖 -->
+        <updateBaseline>false</updateBaseline>
+        <format></format>
+        <skipAnswerQuality>false</skipAnswerQuality>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <includes>
+                <include>**/evaluation/EvaluationTest.java</include>
+              </includes>
+              <systemPropertyVariables>
+                <evaluation.updateBaseline>${updateBaseline}</evaluation.updateBaseline>
+                <evaluation.format>${format}</evaluation.format>
+                <evaluation.skipAnswerQuality>${skipAnswerQuality}</evaluation.skipAnswerQuality>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
   <build>
     <plugins>
       <plugin>

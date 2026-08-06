@@ -103,18 +103,14 @@ public class CrossEncoderReranker implements Reranker {
             }
         }
 
-        try {
-            var inputIdsTensor = OnnxTensor.createTensor(env, inputIds);
-            var attentionMaskTensor = OnnxTensor.createTensor(env, attentionMask);
-            var tokenTypeIdsTensor = OnnxTensor.createTensor(env, tokenTypeIds);
-
-            var inputs = Map.<String, OnnxTensor>of(
-                    "input_ids", inputIdsTensor,
-                    "attention_mask", attentionMaskTensor,
-                    "token_type_ids", tokenTypeIdsTensor
-            );
-
-            var results = session.run(inputs);
+        // try-with-resources 确保 OnnxTensor 与 OrtResult 被关闭，避免原生内存泄漏
+        try (var inputIdsTensor = OnnxTensor.createTensor(env, inputIds);
+             var attentionMaskTensor = OnnxTensor.createTensor(env, attentionMask);
+             var tokenTypeIdsTensor = OnnxTensor.createTensor(env, tokenTypeIds);
+             var results = session.run(Map.of(
+                     "input_ids", inputIdsTensor,
+                     "attention_mask", attentionMaskTensor,
+                     "token_type_ids", tokenTypeIdsTensor))) {
             var logits = (float[][]) results.get(0).getValue();
 
             // sigmoid + 按分数降序取 topK

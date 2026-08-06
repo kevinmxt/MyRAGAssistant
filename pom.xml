@@ -198,10 +198,11 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
         <configuration>
-          <!-- 默认构建排除评估测试，避免评估污染常规测试 -->
+          <!-- 默认构建排除评估集成测试，但不影响 service/evaluation 下的单元测试 -->
           <excludes>
-            <exclude>**/evaluation/**</exclude>
+            <exclude>**/evaluation/EvaluationTest.java</exclude>
           </excludes>
         </configuration>
       </plugin>

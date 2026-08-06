@@ -1,0 +1,11 @@
+{
+  "format": "markdown",
+  "version": "1.0",
+  "testCases": [
+    {
+      "id": "md-001",
+      "query": "测试问题",
+      "relevantDocs": ["test.md"]
+    }
+  ]
+}

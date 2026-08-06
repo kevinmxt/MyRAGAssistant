@@ -13,9 +13,11 @@ import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import me.maxt.rag.web.config.QueryEnhancementConfig;
 import me.maxt.rag.web.config.RecallConfig;
+import me.maxt.rag.web.config.RerankConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
+import me.maxt.rag.web.service.vector.rerank.Reranker;
 import shared.Assistant;
 
 import java.util.ArrayList;
@@ -48,6 +50,7 @@ public class RAGService {
     private final QueryEnhancementConfig enhancementConfig;
     private final MultiRecallRouter multiRecallRouter;
     private final RecallConfig recallConfig;
+    private final Reranker reranker;
 
     /**
      * 创建 RAG 服务实例。
@@ -75,6 +78,16 @@ public class RAGService {
                       QueryEnhancementRouter enhancementRouter,
                       QueryEnhancementConfig enhancementConfig,
                       MultiRecallRouter multiRecallRouter, RecallConfig recallConfig) {
+        this(config, storeManager, embeddingModel, chatModel,
+                enhancementRouter, enhancementConfig, multiRecallRouter, recallConfig, null);
+    }
+
+    public RAGService(RetrievalConfig config, EmbeddingStoreManager storeManager,
+                      EmbeddingModel embeddingModel, ChatModel chatModel,
+                      QueryEnhancementRouter enhancementRouter,
+                      QueryEnhancementConfig enhancementConfig,
+                      MultiRecallRouter multiRecallRouter, RecallConfig recallConfig,
+                      Reranker reranker) {
         this.config = config;
         this.storeManager = storeManager;
         this.embeddingModel = embeddingModel;
@@ -83,6 +96,7 @@ public class RAGService {
         this.enhancementConfig = enhancementConfig;
         this.multiRecallRouter = multiRecallRouter;
         this.recallConfig = recallConfig;
+        this.reranker = reranker;
 
         this.contentRetriever = storeManager.createContentRetriever(
                 embeddingModel, config.getMaxResults(), config.getMinScore());
@@ -143,6 +157,7 @@ public class RAGService {
             // 替代原有 searchAndCollect 检索逻辑
             List<String> modes = recallModes != null ? recallModes : recallConfig.getRecallModes();
             List<EmbeddingMatch<TextSegment>> matches = multiRecallRouter.recall(query, modes);
+            matches = rerankIfAvailable(query, matches);
             sources = matches.stream()
                     .map(this::toSource)
                     .toList();
@@ -174,6 +189,7 @@ public class RAGService {
                             fused, matchGroups.get(i),
                             config.getMaxResults(), enhancementConfig.getRrfK());
                 }
+                fused = rerankIfAvailable(query, fused);
                 sources = fused.stream()
                         .map(this::toSource)
                         .toList();
@@ -185,6 +201,27 @@ public class RAGService {
 
         String answer = assistant.answer(query);
         return new AnswerWithSources(answer, sources);
+    }
+
+    /**
+     * 精排候选结果：仅当 Reranker 可用时执行，否则原样返回。
+     *
+     * @param query   用户问题
+     * @param matches 召回候选
+     * @return 精排后的结果；Reranker 为 null 或不可用时返回原候选
+     */
+    private List<EmbeddingMatch<TextSegment>> rerankIfAvailable(String query,
+                                                                List<EmbeddingMatch<TextSegment>> matches) {
+        if (reranker == null || !reranker.isAvailable()) {
+            // 精排不可用：按召回 topK 裁剪，保持与未启用精排时一致的行为；
+            // topK 未配置（<=0）时视为无限制，避免误裁掉全部结果
+            if (recallConfig != null && recallConfig.getRecallTopK() > 0) {
+                return matches.stream().limit(recallConfig.getRecallTopK()).toList();
+            }
+            return matches;
+        }
+        int topK = (config instanceof RerankConfig rc) ? rc.getRerankTopK() : config.getMaxResults();
+        return reranker.rerank(query, matches, topK);
     }
 
     private List<Source> searchAndCollect(String queryText) {

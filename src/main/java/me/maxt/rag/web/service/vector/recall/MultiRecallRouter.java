@@ -31,7 +31,11 @@ public class MultiRecallRouter {
 
     public List<EmbeddingMatch<TextSegment>> recall(String query, List<String> modes) {
         List<String> effectiveModes = resolveModes(modes);
-        int perStrategyTopK = config.getRecallTopK() * 2;
+        int expansionFactor = 3;
+        if (config instanceof me.maxt.rag.web.config.RerankConfig rc) {
+            expansionFactor = rc.getRerankExpansionFactor();
+        }
+        int perStrategyTopK = config.getRecallTopK() * expansionFactor;
 
         // 并行调用各策略：总延迟 = max(各路延迟)，单路失败/超时不影响其他路
         List<CompletableFuture<List<EmbeddingMatch<TextSegment>>>> futures = effectiveModes.stream()
@@ -75,7 +79,9 @@ public class MultiRecallRouter {
                     .toList();
         }
 
-        return RrfFusion.fuseN(resultGroups, config.getRecallTopK(), config.getRecallRrfK());
+        // 融合上限用 perStrategyTopK（= recallTopK × 扩倍数），
+        // 否则候选在精排之前就被裁剪回 recallTopK，精排变成空操作
+        return RrfFusion.fuseN(resultGroups, perStrategyTopK, config.getRecallRrfK());
     }
 
     private List<String> resolveModes(List<String> requestedModes) {

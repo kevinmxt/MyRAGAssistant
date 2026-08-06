@@ -36,6 +36,8 @@ import me.maxt.rag.web.service.vector.recall.LightRagBridge;
 import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
 import me.maxt.rag.web.service.vector.recall.RecallStrategy;
 import me.maxt.rag.web.service.vector.recall.SparseRecallStrategy;
+import me.maxt.rag.web.service.vector.rerank.CrossEncoderReranker;
+import me.maxt.rag.web.service.vector.rerank.Reranker;
 
 import java.io.File;
 import java.time.Duration;
@@ -61,6 +63,8 @@ public class WebApplication {
     private final MultiRecallRouter multiRecallRouter;
     private final KnowledgeGraphService kgService;
     private final KnowledgeGraphController kgController;
+
+    private final Reranker reranker;
 
     public WebApplication(AppConfig config) {
         this.config = config;
@@ -136,8 +140,10 @@ public class WebApplication {
         this.kgService = kgService;
         this.kgController = kgController;
 
+        this.reranker = new CrossEncoderReranker(config);
+
         this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel,
-                enhancementRouter, config, multiRecallRouter, config);
+                enhancementRouter, config, multiRecallRouter, config, reranker);
 
         // ContextualEnricher：嵌入前用 LLM 为每个 chunk 添加上下文
         ContextualEnricher contextualEnricher = new ContextualEnricher();
@@ -213,4 +219,5 @@ public class WebApplication {
     public EmbeddingStoreManager getStoreManager() { return storeManager; }
     public RAGService getRagService() { return ragService; }
     public DocumentService getDocumentService() { return documentService; }
+    public Reranker getReranker() { return reranker; }
 }

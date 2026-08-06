@@ -75,6 +75,7 @@ public class KnowledgeBaseSeeder {
         int count = 0;
         for (Document doc : documents) {
             try {
+                String fileName = doc.metadata().getString("file_name");
                 List<TextSegment> chunks = chunk(doc);
                 if (chunks.isEmpty()) {
                     // 降级：简单按整篇作为一个片段
@@ -82,6 +83,8 @@ public class KnowledgeBaseSeeder {
                 }
 
                 for (TextSegment chunk : chunks) {
+                    // 参考 DocumentService:156-159，为每个 chunk 附加 file_name 元数据便于溯源
+                    chunk.metadata().put("file_name", fileName);
                     Embedding embedding = embeddingModel.embed(chunk.text()).content();
                     storeManager.add(embedding, chunk);
                 }

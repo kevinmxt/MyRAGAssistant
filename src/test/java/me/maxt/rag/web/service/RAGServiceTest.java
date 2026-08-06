@@ -10,10 +10,14 @@ import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import dev.langchain4j.model.output.TokenUsage;
+import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import me.maxt.rag.web.config.QueryEnhancementConfig;
+import me.maxt.rag.web.config.RecallConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
+import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
+import me.maxt.rag.web.service.vector.rerank.Reranker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -21,8 +25,13 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RAGServiceTest {
@@ -169,5 +178,104 @@ class RAGServiceTest {
 
         assertThat(result.sources).hasSize(1);
         assertThat(result.sources.get(0).text).isEqualTo("安装教程：下载后解压运行");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldCallRerankerWhenAvailable() {
+        // 召回候选（由 MultiRecallRouter 返回）
+        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
+        TextSegment seg = TextSegment.from("reranked candidate");
+        seg.metadata().put("file_name", "rerank.txt");
+        when(recalled.embedded()).thenReturn(seg);
+        when(recalled.score()).thenReturn(0.9);
+
+        MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
+        when(mockRouter.recall(anyString(), anyList())).thenReturn(List.of(recalled));
+        RecallConfig mockRecallConfig = mock(RecallConfig.class);
+        when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
+        when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
+
+        // 可用的 Reranker：返回精排后的结果
+        Reranker mockReranker = mock(Reranker.class);
+        when(mockReranker.isAvailable()).thenReturn(true);
+        when(mockReranker.rerank(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
+
+        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
+        Response<Embedding> embedResp = mock(Response.class);
+        when(embedResp.content()).thenReturn(Embedding.from(new float[]{0.5f, 0.5f}));
+        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
+
+        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
+                null, null, mockRouter, mockRecallConfig, mockReranker);
+        RAGService.AnswerWithSources result = service.answerWithSources("test query");
+
+        // rerank() 必须被调用，且精排结果被映射为 sources
+        verify(mockReranker).rerank(eq("test query"), anyList(), anyInt());
+        assertThat(result.sources).hasSize(1);
+        assertThat(result.sources.get(0).text).isEqualTo("reranked candidate");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldSkipRerankWhenNotAvailable() {
+        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
+        TextSegment seg = TextSegment.from("recalled candidate");
+        seg.metadata().put("file_name", "recall.txt");
+        when(recalled.embedded()).thenReturn(seg);
+        when(recalled.score()).thenReturn(0.8);
+
+        MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
+        when(mockRouter.recall(anyString(), anyList())).thenReturn(List.of(recalled));
+        RecallConfig mockRecallConfig = mock(RecallConfig.class);
+        when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
+        when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
+
+        // 不可用的 Reranker：不应被调用，召回结果原样返回
+        Reranker mockReranker = mock(Reranker.class);
+        when(mockReranker.isAvailable()).thenReturn(false);
+
+        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
+        Response<Embedding> embedResp = mock(Response.class);
+        when(embedResp.content()).thenReturn(Embedding.from(new float[]{0.5f, 0.5f}));
+        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
+
+        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
+                null, null, mockRouter, mockRecallConfig, mockReranker);
+        RAGService.AnswerWithSources result = service.answerWithSources("test query");
+
+        verify(mockReranker, never()).rerank(anyString(), anyList(), anyInt());
+        assertThat(result.sources).hasSize(1);
+        assertThat(result.sources.get(0).text).isEqualTo("recalled candidate");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldNotFailWhenRerankerIsNull() {
+        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
+        TextSegment seg = TextSegment.from("legacy candidate");
+        seg.metadata().put("file_name", "legacy.txt");
+        when(recalled.embedded()).thenReturn(seg);
+        when(recalled.score()).thenReturn(0.8);
+
+        MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
+        when(mockRouter.recall(anyString(), anyList())).thenReturn(List.of(recalled));
+        RecallConfig mockRecallConfig = mock(RecallConfig.class);
+        when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
+        when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
+
+        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
+        Response<Embedding> embedResp = mock(Response.class);
+        when(embedResp.content()).thenReturn(Embedding.from(new float[]{0.5f, 0.5f}));
+        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
+
+        // 8-param 构造器（无 reranker 参数）：旧构造器兼容性，不应 NPE
+        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
+                null, null, mockRouter, mockRecallConfig);
+        RAGService.AnswerWithSources result = service.answerWithSources("test query");
+
+        assertThat(result.answer).isNotNull();
+        assertThat(result.sources).hasSize(1);
+        assertThat(result.sources.get(0).text).isEqualTo("legacy candidate");
     }
 }

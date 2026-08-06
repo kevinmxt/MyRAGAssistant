@@ -38,23 +38,29 @@ public class CrossEncoderReranker implements Reranker {
             return;
         }
 
+        // 用局部变量承载加载结果，避免 final 字段在 try/catch 双路径上重复赋值
+        OrtEnvironment loadedEnv = null;
+        OrtSession loadedSession = null;
+        HuggingFaceTokenizer loadedTokenizer = null;
+        boolean loaded = false;
         try {
-            this.env = OrtEnvironment.getEnvironment();
+            loadedEnv = OrtEnvironment.getEnvironment();
             var sessionOptions = new OrtSession.SessionOptions();
-            this.session = env.createSession(onnxFile.getAbsolutePath(), sessionOptions);
-            this.tokenizer = tokenizerFile.exists()
+            loadedSession = loadedEnv.createSession(onnxFile.getAbsolutePath(), sessionOptions);
+            loadedTokenizer = tokenizerFile.exists()
                     ? HuggingFaceTokenizer.newInstance(tokenizerFile.toPath())
                     : HuggingFaceTokenizer.newInstance(Path.of(modelPath));
-            this.available = true;
+            loaded = true;
             log.info("精排模型已加载: {} ({} 候选扩倍数, topK={})",
                     onnxFile.getAbsolutePath(), config.getRerankExpansionFactor(), config.getRerankTopK());
-        } catch (OrtException e) {
+        } catch (Exception e) {
+            // 任何加载失败（模型损坏、tokenizer 异常等）都降级，不抛出异常中断应用启动
             log.error("加载精排模型失败: {}", e.getMessage());
-            throw new RuntimeException("Failed to load reranker ONNX model", e);
-        } catch (java.io.IOException e) {
-            log.error("加载精排 tokenizer 失败: {}", e.getMessage());
-            throw new RuntimeException("Failed to load reranker tokenizer", e);
         }
+        this.env = loadedEnv;
+        this.session = loadedSession;
+        this.tokenizer = loadedTokenizer;
+        this.available = loaded;
     }
 
     @Override

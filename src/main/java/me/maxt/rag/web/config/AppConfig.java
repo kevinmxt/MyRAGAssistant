@@ -25,7 +25,7 @@ import java.util.Map;
  * @author maxt
  * @since 1.0
  */
-public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig, RerankConfig {
+public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig, RerankConfig, EvaluationConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
@@ -177,6 +177,20 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** 模型下载镜像地址，可通过环境变量 RAG_RERANK_DOWNLOAD_MIRROR 覆盖 */
     private String rerankDownloadMirror;
 
+    // ========== 评估参数 ==========
+
+    /** 评估指标（Recall@K / Precision@K / NDCG@K）的 K 值，可通过环境变量 RAG_EVALUATION_TOP_K 覆盖 */
+    private int evaluationTopK;
+
+    /** 启用的评估格式列表，可通过环境变量 RAG_EVALUATION_FORMATS（逗号分隔）覆盖 */
+    private List<String> evaluationFormats;
+
+    /** 是否启用 LLM 答案质量评估，可通过环境变量 RAG_EVALUATION_ANSWER_QUALITY_ENABLED 覆盖 */
+    private boolean answerQualityEnabled;
+
+    /** 退化判定阈值（如 0.05 表示 5%），可通过环境变量 RAG_EVALUATION_DEGRADATION_THRESHOLD 覆盖 */
+    private double degradationThreshold;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -225,6 +239,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.rerankTopK = 5;
         this.rerankAutoDownload = true;
         this.rerankDownloadMirror = "https://hf-mirror.com";
+        this.evaluationTopK = 5;
+        this.evaluationFormats = Arrays.asList("markdown", "txt", "pdf", "docx", "json");
+        this.answerQualityEnabled = true;
+        this.degradationThreshold = 0.05;
     }
 
     /**
@@ -361,6 +379,21 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             config.rerankAutoDownload = getBoolean(rerank, "autoDownload", config.rerankAutoDownload);
             config.rerankDownloadMirror = getString(rerank, "downloadMirror", config.rerankDownloadMirror);
         }
+
+        Map<String, Object> evaluation = (Map<String, Object>) fileConfig.get("evaluation");
+        if (evaluation != null) {
+            config.evaluationTopK = getInt(evaluation, "topK", config.evaluationTopK);
+            Object formatsObj = evaluation.get("formats");
+            if (formatsObj instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<String> formatsList = (List<String>) formatsObj;
+                config.evaluationFormats = formatsList;
+            } else if (formatsObj instanceof String) {
+                config.evaluationFormats = Arrays.asList(((String) formatsObj).split(","));
+            }
+            config.answerQualityEnabled = getBoolean(evaluation, "answerQualityEnabled", config.answerQualityEnabled);
+            config.degradationThreshold = getDouble(evaluation, "degradationThreshold", config.degradationThreshold);
+        }
     }
 
     /**
@@ -414,6 +447,13 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.rerankTopK = envInt("RAG_RERANK_TOP_K", config.rerankTopK);
         config.rerankAutoDownload = envBool("RAG_RERANK_AUTO_DOWNLOAD", config.rerankAutoDownload);
         config.rerankDownloadMirror = env("RAG_RERANK_DOWNLOAD_MIRROR", config.rerankDownloadMirror);
+        config.evaluationTopK = envInt("RAG_EVALUATION_TOP_K", config.evaluationTopK);
+        String formatsEnv = System.getenv("RAG_EVALUATION_FORMATS");
+        if (formatsEnv != null && !formatsEnv.isEmpty()) {
+            config.evaluationFormats = Arrays.asList(formatsEnv.split(","));
+        }
+        config.answerQualityEnabled = envBool("RAG_EVALUATION_ANSWER_QUALITY_ENABLED", config.answerQualityEnabled);
+        config.degradationThreshold = envDouble("RAG_EVALUATION_DEGRADATION_THRESHOLD", config.degradationThreshold);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -552,4 +592,12 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public boolean isRerankAutoDownload() { return rerankAutoDownload; }
     /** @return 模型下载镜像地址 */
     public String getRerankDownloadMirror() { return rerankDownloadMirror; }
+    /** @return 评估指标（Recall@K / Precision@K / NDCG@K）的 K 值 */
+    @Override public int getEvaluationTopK() { return evaluationTopK; }
+    /** @return 启用的评估格式列表 */
+    @Override public List<String> getEvaluationFormats() { return evaluationFormats; }
+    /** @return 是否启用 LLM 答案质量评估 */
+    @Override public boolean isAnswerQualityEnabled() { return answerQualityEnabled; }
+    /** @return 退化判定阈值（如 0.05 表示 5%） */
+    @Override public double getDegradationThreshold() { return degradationThreshold; }
 }

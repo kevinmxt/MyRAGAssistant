@@ -32,6 +32,7 @@
 - **多路召回** — 可选的混合召回架构：稠密向量 + 稀疏 BM25 + 知识图谱三路并行检索，RRF 融合提升召回覆盖率
 - **知识图谱** — 集成 LightRAG，支持从已索引文档构建知识图谱，提供实体关系感知的图谱检索
 - **重排序增强** — Cross-Encoder 精排层（bge-reranker-v2-m3），在粗召回后对候选片段进行语义精排，显著提升 Top-K 相关性；模型缺失时自动后台下载，无需配置
+- **自动化效果评估** — 检索质量（Recall/Precision/MRR/NDCG）+ 答案质量（LLM-as-Judge）双维度评估，五种文档格式独立基线，Maven profile 隔离运行
 - **自动向量化** — 本地 ONNX 模型生成嵌入向量，支持批量处理
 - **向量数据持久化** — 向量数据存储于 Milvus，通过 Docker volume 持久化，重启后自动恢复
 - **RAG 智能问答** — 基于检索增强生成的智能问答，答案附带参考来源
@@ -161,6 +162,10 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `rerank.topK` | number | `5` | 精排后最终返回给 LLM 的结果数 |
 | `rerank.autoDownload` | boolean | `true` | 模型缺失时是否自动下载（启动后台异步下载） |
 | `rerank.downloadMirror` | string | `"https://hf-mirror.com"` | 模型下载镜像地址（国内优先，失败回退 HuggingFace） |
+| `evaluation.topK` | number | `5` | 评估时 Recall@K / Precision@K / NDCG@K 的 K 值 |
+| `evaluation.formats` | array | `["markdown","txt","pdf","docx","json"]` | 启用的评估格式列表 |
+| `evaluation.answerQualityEnabled` | boolean | `true` | 是否默认启用 LLM 答案质量评估 |
+| `evaluation.degradationThreshold` | number | `0.05` | 退化判定阈值（5%） |
 | `chat.memorySize` | number | `10` | 对话记忆窗口（消息数） |
 | `server.port` | number | `8080` | HTTP 服务端口 |
 | `milvus.host` | string | `"localhost"` | Milvus 服务地址 |
@@ -213,6 +218,10 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `RAG_RERANK_TOP_K` | `rerank.topK` |
 | `RAG_RERANK_AUTO_DOWNLOAD` | `rerank.autoDownload` |
 | `RAG_RERANK_DOWNLOAD_MIRROR` | `rerank.downloadMirror` |
+| `RAG_EVALUATION_TOP_K` | `evaluation.topK` |
+| `RAG_EVALUATION_FORMATS` | `evaluation.formats`（逗号分隔） |
+| `RAG_EVALUATION_ANSWER_QUALITY` | `evaluation.answerQualityEnabled` |
+| `RAG_EVALUATION_DEGRADATION_THRESHOLD` | `evaluation.degradationThreshold` |
 
 ## API 文档
 
@@ -341,111 +350,138 @@ MyAIDemo2/
 ├── config.example.json              # 配置文件模板
 ├── pom.xml                          # Maven 构建配置
 ├── README.md
-└── src/main/
-    ├── java/
-    │   ├── shared/
-    │   │   ├── Assistant.java       # AI 服务接口
-    │   │   └── Utils.java           # 工具类
-    │   └── me/maxt/rag/
-    │       ├── Easy_RAG_Example2.java
-    │       ├── Naive_RAG_Example.java
-    │       └── web/
-    │           ├── App.java              # 应用入口（薄胶水层）
-    │           ├── WebApplication.java   # 启动组装工厂
-    │           ├── config/
-    │           │   ├── AppConfig.java               # 配置实现（7 个接口）
-    │           │   ├── LlmConfig.java               # LLM 配置接口
-    │           │   ├── RetrievalConfig.java         # 检索配置接口
-    │           │   ├── DocumentConfig.java          # 文档配置接口
-    │           │   ├── QueryEnhancementConfig.java  # 查询增强配置接口
-    │           │   ├── ServerConfig.java            # 服务器配置接口
-    │           │   ├── MilvusConfig.java            # Milvus 配置接口
-    │           │   ├── RecallConfig.java            # 多路召回 + LightRAG 配置接口
-    │           │   ├── RerankConfig.java            # 重排序配置接口
-    │           │   └── ChunkingConfig.java          # 切分配置接口
-    │           ├── controller/
-    │           │   ├── ChatController.java            # 对话 API
-    │           │   ├── DocumentController.java        # 文档管理 API
-    │           │   └── KnowledgeGraphController.java  # KG 构建和管理 API
-    │           └── service/
-    │               ├── DocumentService.java        # 文档摄入/浏览/列表服务
-    │               ├── EmbeddingStoreManager.java  # 向量存储管理
-    │               ├── RAGService.java             # RAG 核心服务
-    │               ├── KnowledgeGraphService.java  # LightRAG 知识图谱服务
-    │               ├── vector/
-    │               │   ├── ContextualEnricher.java       # 上下文增强器
-    │               │   ├── QueryEnhancer.java            # 查询增强接口
-    │               │   ├── QueryRewriter.java            # LLM 查询改写
-    │               │   ├── HyDEGenerator.java            # 假设文档生成
-    │               │   ├── QueryEnhancementRouter.java   # 增强路由器
-    │               │   ├── RrfFusion.java                # RRF 融合工具类
-    │               │   └── recall/
-    │               │       ├── RecallStrategy.java        # 召回策略接口
-    │               │       ├── DenseRecallStrategy.java   # 稠密向量检索
-    │               │       ├── SparseRecallStrategy.java  # Milvus BM25 稀疏检索
-    │               │       ├── GraphRecallStrategy.java   # LightRAG 图谱检索
-    │               │       ├── MultiRecallRouter.java     # 多路召回路由器
-    │               │       └── LightRagBridge.java        # Python LightRAG 桥接
-    │               └── rerank/
-    │                   ├── Reranker.java              # 重排序接口
-    │                   └── CrossEncoderReranker.java  # ONNX Cross-Encoder 精排
-    │               └── chunking/
-    │                   ├── ChunkingPipeline.java   # 切分管线编排
-    │                   ├── DocStructure.java等     # 数据结构
-    │                   ├── analyzer/
-    │                   │   └── StructureAnalyzer.java  # flexmark 结构分析
-    │                   ├── classifier/
-    │                   │   └── SplitClassifier.java    # 策略选择器
-    │                   ├── converter/
-    │                   │   └── MarkdownConverter.java  # Pandoc+Tika 转换
-    │                   ├── splitter/
-    │                   │   ├── SplitStrategy.java      # 策略接口
-    │                   │   ├── StructureSplitter.java  # 结构切分
-    │                   │   ├── SemanticSplitter.java   # 语义切分
-    │                   │   └── AgentRefiner.java       # LLM 精炼
-    │                   └── evaluator/
-    │                       └── ChunkEvaluator.java     # 质量评估
-    └── test/
-        └── java/me/maxt/rag/web/
-            ├── config/
-            │   └── AppConfigTest.java                 # 配置测试
-            ├── service/
-            │   ├── EmbeddingStoreManagerTest.java      # 存储管理测试
-            │   ├── EmbeddingStoreManagerMilvusIT.java  # Milvus 集成测试
-            │   ├── DocumentServiceTest.java            # 文档服务测试
-            │   ├── RAGServiceTest.java                 # RAG 服务测试
-            │   ├── KnowledgeGraphServiceTest.java      # KG 服务测试
-            │   ├── vector/
-            │   │   ├── ContextualEnricherTest.java       # 上下文增强器测试
-            │   │   ├── QueryRewriterTest.java           # 查询改写测试
-            │   │   ├── HyDEGeneratorTest.java           # 假设文档生成测试
-            │   │   ├── QueryEnhancementRouterTest.java  # 增强路由器测试
-            │   │   ├── RrfFusionTest.java               # RRF 融合测试
-            │   │   └── recall/
-            │   │       ├── DenseRecallStrategyTest.java   # 稠密召回测试
-            │   │       ├── SparseRecallStrategyTest.java  # 稀疏召回测试
-            │   │       ├── GraphRecallStrategyTest.java   # 图谱召回测试
-            │   │       ├── MultiRecallRouterTest.java     # 多路召回路由器测试
-            │   │       └── MultiRecallRouterIT.java       # 多路召回集成测试
-            │   └── rerank/
-            │       └── CrossEncoderRerankerTest.java   # 精排器测试
-            │   └── chunking/
-            │       ├── ChunkingPipelineTest.java       # 管线测试
-            │       ├── analyzer/
-            │       │   └── StructureAnalyzerTest.java  # 结构分析测试
-            │       ├── classifier/
-            │       │   └── SplitClassifierTest.java    # 分类器测试
-            │       ├── converter/
-            │       │   └── MarkdownConverterTest.java  # 转换器测试
-            │       └── splitter/
-            │           ├── StructureSplitterTest.java  # 结构切分测试
-            │           ├── SemanticSplitterTest.java   # 语义切分测试
-            │           └── AgentRefinerTest.java       # 精炼器测试
-    └── resources/
-        └── webapp/
-            ├── index.html           # 前端页面
-            ├── style.css            # 样式表
-            └── app.js               # 前端逻辑
+├── src/main/java/
+│   ├── shared/
+│   │   ├── Assistant.java       # AI 服务接口
+│   │   └── Utils.java           # 工具类
+│   └── me/maxt/rag/web/
+│       ├── App.java              # 应用入口（薄胶水层）
+│       ├── WebApplication.java   # 启动组装工厂
+│       ├── config/
+│       │   ├── AppConfig.java               # 配置实现（9 个接口）
+│       │   ├── LlmConfig.java               # LLM 配置接口
+│       │   ├── RetrievalConfig.java         # 检索配置接口
+│       │   ├── DocumentConfig.java          # 文档配置接口
+│       │   ├── QueryEnhancementConfig.java  # 查询增强配置接口
+│       │   ├── ServerConfig.java            # 服务器配置接口
+│       │   ├── MilvusConfig.java            # Milvus 配置接口
+│       │   ├── RecallConfig.java            # 多路召回 + LightRAG 配置接口
+│       │   ├── RerankConfig.java            # 重排序配置接口
+│       │   ├── EvaluationConfig.java        # 评估配置接口
+│       │   └── ChunkingConfig.java          # 切分配置接口
+│       ├── controller/
+│       │   ├── ChatController.java            # 对话 API
+│       │   ├── DocumentController.java        # 文档管理 API
+│       │   └── KnowledgeGraphController.java  # KG 构建和管理 API
+│       └── service/
+│           ├── DocumentService.java        # 文档摄入/浏览/列表服务
+│           ├── EmbeddingStoreManager.java  # 向量存储管理
+│           ├── RAGService.java             # RAG 核心服务
+│           ├── KnowledgeGraphService.java  # LightRAG 知识图谱服务
+│           ├── vector/
+│           │   ├── ContextualEnricher.java       # 上下文增强器
+│           │   ├── QueryEnhancer.java            # 查询增强接口
+│           │   ├── QueryRewriter.java            # LLM 查询改写
+│           │   ├── HyDEGenerator.java            # 假设文档生成
+│           │   ├── QueryEnhancementRouter.java   # 增强路由器
+│           │   ├── RrfFusion.java                # RRF 融合工具类
+│           │   ├── recall/
+│           │   │   ├── RecallStrategy.java        # 召回策略接口
+│           │   │   ├── DenseRecallStrategy.java   # 稠密向量检索
+│           │   │   ├── SparseRecallStrategy.java  # Milvus BM25 稀疏检索
+│           │   │   ├── GraphRecallStrategy.java   # LightRAG 图谱检索
+│           │   │   ├── MultiRecallRouter.java     # 多路召回路由器
+│           │   │   └── LightRagBridge.java        # Python LightRAG 桥接
+│           │   └── rerank/
+│           │       ├── Reranker.java              # 重排序接口
+│           │       └── CrossEncoderReranker.java  # ONNX Cross-Encoder 精排
+│           ├── evaluation/
+│           │   ├── EvaluationPipeline.java   # 评估管线编排入口
+│           │   ├── DatasetLoader.java        # 测试用例加载器
+│           │   ├── KnowledgeBaseSeeder.java   # 评估文档入库
+│           │   ├── EvaluationMetric.java      # 检索指标接口
+│           │   ├── RecallAtK.java             # 召回率@K
+│           │   ├── PrecisionAtK.java          # 精确率@K
+│           │   ├── MRR.java                   # 平均倒数排名
+│           │   ├── NDCGAtK.java               # 归一化折损累计增益
+│           │   ├── RetrievalEvaluator.java    # 检索评估编排器
+│           │   ├── AnswerQualityMetric.java   # 答案质量接口
+│           │   ├── AnswerQualityEvaluator.java # LLM-as-Judge 评估器
+│           │   ├── BaselineManager.java       # 基线管理器
+│           │   ├── EvaluationReport.java      # 报告 DTO
+│           │   ├── TestCase.java              # 测试用例 DTO
+│           │   └── QualityScore.java          # 答案质量评分 DTO
+│           └── chunking/
+│               ├── ChunkingPipeline.java   # 切分管线编排
+│               ├── DocStructure.java等     # 数据结构
+│               ├── analyzer/
+│               │   └── StructureAnalyzer.java  # flexmark 结构分析
+│               ├── classifier/
+│               │   └── SplitClassifier.java    # 策略选择器
+│               ├── converter/
+│               │   └── MarkdownConverter.java  # Pandoc+Tika 转换
+│               ├── splitter/
+│               │   ├── SplitStrategy.java      # 策略接口
+│               │   ├── StructureSplitter.java  # 结构切分
+│               │   ├── SemanticSplitter.java   # 语义切分
+│               │   └── AgentRefiner.java       # LLM 精炼
+│               └── evaluator/
+│                   └── ChunkEvaluator.java     # 质量评估
+├── src/test/java/me/maxt/rag/web/
+│   ├── config/
+│   │   └── AppConfigTest.java                 # 配置测试
+│   ├── evaluation/
+│   │   └── EvaluationTest.java                # 评估集成测试入口（-P evaluation）
+│   └── service/
+│       ├── EmbeddingStoreManagerTest.java      # 存储管理测试
+│       ├── EmbeddingStoreManagerMilvusIT.java  # Milvus 集成测试
+│       ├── DocumentServiceTest.java            # 文档服务测试
+│       ├── RAGServiceTest.java                 # RAG 服务测试
+│       ├── KnowledgeGraphServiceTest.java      # KG 服务测试
+│       ├── evaluation/
+│       │   ├── EvaluationMetricsTest.java      # 检索指标测试
+│       │   ├── DatasetLoaderTest.java          # 数据集加载测试
+│       │   ├── RetrievalEvaluatorTest.java     # 检索评估器测试
+│       │   └── BaselineManagerTest.java        # 基线管理器测试
+│       ├── vector/
+│       │   ├── ContextualEnricherTest.java       # 上下文增强器测试
+│       │   ├── QueryRewriterTest.java           # 查询改写测试
+│       │   ├── HyDEGeneratorTest.java           # 假设文档生成测试
+│       │   ├── QueryEnhancementRouterTest.java  # 增强路由器测试
+│       │   ├── RrfFusionTest.java               # RRF 融合测试
+│       │   ├── recall/
+│       │   │   ├── DenseRecallStrategyTest.java   # 稠密召回测试
+│       │   │   ├── SparseRecallStrategyTest.java  # 稀疏召回测试
+│       │   │   ├── GraphRecallStrategyTest.java   # 图谱召回测试
+│       │   │   ├── MultiRecallRouterTest.java     # 多路召回路由器测试
+│       │   │   └── MultiRecallRouterIT.java       # 多路召回集成测试
+│       │   └── rerank/
+│       │       └── CrossEncoderRerankerTest.java   # 精排器测试
+│       └── chunking/
+│           ├── ChunkingPipelineTest.java       # 管线测试
+│           ├── analyzer/
+│           │   └── StructureAnalyzerTest.java  # 结构分析测试
+│           ├── classifier/
+│           │   └── SplitClassifierTest.java    # 分类器测试
+│           ├── converter/
+│           │   └── MarkdownConverterTest.java  # 转换器测试
+│           └── splitter/
+│               ├── StructureSplitterTest.java  # 结构切分测试
+│               ├── SemanticSplitterTest.java   # 语义切分测试
+│               └── AgentRefinerTest.java       # 精炼器测试
+├── src/test/resources/evaluation/
+│   ├── config.json                      # 评估全局配置
+│   ├── markdown/
+│   │   ├── testcases.json               # MD 测试用例
+│   │   └── baseline.json                # MD 评估基线
+│   ├── txt/testcases.json
+│   ├── pdf/testcases.json
+│   ├── docx/testcases.json
+│   └── json/testcases.json
+└── src/main/resources/webapp/
+    ├── index.html           # 前端页面
+    ├── style.css            # 样式表
+    └── app.js               # 前端逻辑
 ```
 
 ## 注意事项

@@ -55,5 +55,11 @@
     "topK": 5,
     "autoDownload": true,
     "downloadMirror": "https://hf-mirror.com"
+  },
+  "evaluation": {
+    "topK": 5,
+    "formats": ["markdown", "txt", "pdf", "docx", "json"],
+    "answerQualityEnabled": true,
+    "degradationThreshold": 0.05
   }
 }

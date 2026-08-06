@@ -80,6 +80,40 @@ MultiRecallRouter → [DenseRecallStrategy, SparseRecallStrategy, GraphRecallStr
 
 ## 重排序（Re-rank）
 
+
+## 评估管线（Evaluation）
+
+`service/evaluation/` 包实现 RAG 效果自动化评估体系，支持五种文档格式独立测试基线、检索质量 + 答案质量双维度评估：
+
+```
+EvaluationPipeline
+  ├── DatasetLoader        → 加载 testcases.json
+  ├── KnowledgeBaseSeeder   → 切分→向量化→InMemory 入库
+  ├── RAGService           → 实时生成答案 + 检索来源
+  ├── RetrievalEvaluator    → Recall@K, Precision@K, MRR, NDCG（纯数学）
+  ├── AnswerQualityEvaluator → LLM-as-Judge (Faithfulness, AnswerRelevancy)
+  └── BaselineManager       → 基线加载/保存/对比/退化判定
+```
+
+| 组件 | 职责 |
+|------|------|
+| `EvaluationPipeline` | 评估管线编排入口，串联全部组件执行单格式评估 |
+| `DatasetLoader` | 从 classpath 加载 `evaluation/<format>/testcases.json`，校验字段完整性 |
+| `KnowledgeBaseSeeder` | 将 `docs/` 下文档走完整切分→向量化→入库，使用 InMemoryEmbeddingStore 隔离生产数据 |
+| `EvaluationMetric` | 检索指标接口（可扩展），内置 Recall@K / Precision@K / MRR / NDCG@K |
+| `RetrievalEvaluator` | 编排所有检索指标计算 |
+| `AnswerQualityMetric` | 答案质量指标接口（可扩展），内置 Faithfulness / AnswerRelevancy |
+| `AnswerQualityEvaluator` | LLM-as-Judge 编排，复用应用 ChatModel，temperature=0 |
+| `BaselineManager` | 基线生命周期：首次生成写入 `src/test/resources`，后续对比报告退化 |
+| `EvaluationReport` | 报告 DTO，覆盖 baseline / 时间戳 / summary 三种格式 |
+| `TestCase` | 测试用例 DTO，映射 testcases.json 单条记录 |
+
+**隔离策略**：评估使用 InMemoryEmbeddingStore，不与生产 Milvus 数据混合。通过 Maven `evaluation` profile 隔离运行（`mvn test -P evaluation`），默认 `mvn test` 不执行评估。
+
+**基线管理**：首次运行生成 baseline.json 写入 `src/test/resources/evaluation/<format>/`（提交 git）；后续运行对比基线，退化 >5% 告警。手动更新基线用 `-DupdateBaseline`。
+
+## 重排序（Re-rank）
+
 `service/vector/rerank/` 包实现 Cross-Encoder 精排层，在多路召回/RRF 融合之后对候选片段进行语义相关性重打分：
 
 ```

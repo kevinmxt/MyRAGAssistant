@@ -5,7 +5,8 @@
 | 命令 | 用途 |
 |------|------|
 | `mvn compile` | 编译 |
-| `mvn test` | 运行 107 个单元测试 |
+| `mvn test` | 运行 124 个单元测试 |
+| `mvn test -P evaluation` | 运行 RAG 效果评估（对比基线） |
 | `mvn test jacoco:report` | 覆盖率报告 → `target/site/jacoco/index.html` |
 | `mvn clean package` | 构建 Fat JAR |
 | `docker compose up -d` | 启动 Milvus（首次运行前必须） |
@@ -16,10 +17,12 @@
 | 文档 | 内容 |
 |------|------|
 | `README.md` | 用户手册、功能特性、配置说明、API 文档 |
-| `docs/architecture.md` | 架构设计原则、依赖注入、切分管线、查询增强 |
+| `docs/architecture.md` | 架构设计原则、依赖注入、切分管线、查询增强、评估管线 |
 | `docs/modules.md` | 模块职责一览 |
 | `docs/testing.md` | 测试约定与命令 |
 | `docs/environment.md` | 环境要求、技术栈、常见问题 |
+| `docs/superpowers/specs/2026-08-06-rag-evaluation-design.md` | RAG 效果评估设计文档 |
+| `docs/superpowers/plans/2026-08-06-rag-evaluation.md` | RAG 效果评估实现计划 |
 | `docs/agents/issue-tracker.md` | GitHub Issues 操作约定 |
 | `docs/agents/triage-labels.md` | 五个 triage 标签映射 |
 | `docs/agents/domain.md` | 领域文档布局（CONTEXT.md + ADR） |
@@ -39,6 +42,10 @@
 - `me.maxt.rag.web.service.KnowledgeGraphService` — LightRAG 知识图谱构建和管理
 - `me.maxt.rag.web.service.vector.rerank.CrossEncoderReranker` — ONNX Cross-Encoder 精排器（bge-reranker-v2-m3）
 - `me.maxt.rag.web.config.RerankConfig` — 重排序配置接口（模型路径、自动下载、精排TopK）
+- `me.maxt.rag.web.service.evaluation.EvaluationPipeline` — 评估管线编排入口（检索/答案质量/基线管理）
+- `me.maxt.rag.web.service.evaluation.RetrievalEvaluator` — 检索评估器（Recall/Precision/MRR/NDCG）
+- `me.maxt.rag.web.service.evaluation.BaselineManager` — 基线管理器（加载/保存/对比/退化判定）
+- `me.maxt.rag.web.config.EvaluationConfig` — 评估配置接口（TopK、格式列表、退化阈值）
 
 ## 对话
 

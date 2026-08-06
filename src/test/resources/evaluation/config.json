@@ -1,0 +1,8 @@
+{
+  "topK": 5,
+  "formats": ["markdown", "txt", "pdf", "docx", "json"],
+  "evaluation": {
+    "answerQualityEnabled": true,
+    "degradationThreshold": 0.05
+  }
+}

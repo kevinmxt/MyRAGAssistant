@@ -161,8 +161,51 @@
 
   </dependencies>
 
+  <profiles>
+    <profile>
+      <id>evaluation</id>
+      <properties>
+        <!-- CLI 可用 -DupdateBaseline/-Dformat/-DskipAnswerQuality 覆盖 -->
+        <updateBaseline>false</updateBaseline>
+        <format></format>
+        <skipAnswerQuality>false</skipAnswerQuality>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <!-- 覆盖主 build 的 excludes，否则 excludes 优先会导致本 profile 也跳过评估 -->
+              <excludes combine.self="override" />
+              <includes>
+                <include>**/evaluation/EvaluationTest.java</include>
+              </includes>
+              <systemPropertyVariables>
+                <evaluation.updateBaseline>${updateBaseline}</evaluation.updateBaseline>
+                <evaluation.format>${format}</evaluation.format>
+                <evaluation.skipAnswerQuality>${skipAnswerQuality}</evaluation.skipAnswerQuality>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <!-- 默认构建排除评估集成测试，但不影响 service/evaluation 下的单元测试 -->
+          <excludes>
+            <exclude>**/evaluation/EvaluationTest.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>

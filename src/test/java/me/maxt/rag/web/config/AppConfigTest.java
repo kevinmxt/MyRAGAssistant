@@ -43,6 +43,8 @@ class AppConfigTest {
         assertThat(config).isInstanceOf(ServerConfig.class);
         assertThat(config).isInstanceOf(QueryEnhancementConfig.class);
         assertThat(config).isInstanceOf(MilvusConfig.class);
+        assertThat(config).isInstanceOf(RecallConfig.class);
+        assertThat(config).isInstanceOf(RerankConfig.class);
     }
 
     @Test
@@ -98,5 +100,13 @@ class AppConfigTest {
         assertThat(config.getMilvusPort()).isEqualTo(19530);
         assertThat(config.getMilvusCollectionName()).isEqualTo("rag_knowledge_base");
         assertThat(config.getMilvusDimension()).isEqualTo(512);
+    }
+
+    @Test
+    void shouldHaveDefaultRerankConfig() {
+        AppConfig config = new AppConfig();
+        assertThat(config.getRerankModelPath()).isEqualTo("models/bge-reranker-v2-m3");
+        assertThat(config.getRerankExpansionFactor()).isEqualTo(3);
+        assertThat(config.getRerankTopK()).isEqualTo(5);
     }
 }

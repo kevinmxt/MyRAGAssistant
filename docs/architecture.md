@@ -78,6 +78,23 @@ MultiRecallRouter → [DenseRecallStrategy, SparseRecallStrategy, GraphRecallStr
 
 **启用方式**：配置 `multiRecall.enabled: true`，通过 `multiRecall.modes` 指定启用模式（dense/sparse/graph）。
 
+## 重排序（Re-rank）
+
+`service/vector/rerank/` 包实现 Cross-Encoder 精排层，在多路召回/RRF 融合之后对候选片段进行语义相关性重打分：
+
+```
+RRF 融合结果 → CrossEncoderReranker (精排) → LLM
+```
+
+| 组件 | 职责 |
+|------|------|
+| `Reranker` | 重排序接口，定义 `name()` + `isAvailable()` + `rerank(query, candidates, topK)` |
+| `CrossEncoderReranker` | ONNX Cross-Encoder 精排实现（bge-reranker-v2-m3），对每个 (query, passage) 对独立打分后按分数降序取 topK |
+
+**降级容错**：启动时自动检测精排模型文件（`models/bge-reranker-v2-m3/model.onnx`），缺失时日志警告 + 跳过；自动下载开启时，后台异步下载模型，下载完成后自动启用；加载失败（模型损坏等）同样降级，不阻塞应用启动。`RAGService` 中 reranker 为 null 或不可用时不执行精排。
+
+**启用方式**：始终生效，无需配置开关。模型缺失时自动降级或后台下载。
+
 ## 知识图谱（Knowledge Graph）
 
 | 组件 | 职责 |

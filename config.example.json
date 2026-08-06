@@ -48,5 +48,12 @@
       "embeddingModelPath": "models/bge-small-zh-v1.5",
       "queryMode": "hybrid"
     }
+  },
+  "rerank": {
+    "modelPath": "models/bge-reranker-v2-m3",
+    "expansionFactor": 3,
+    "topK": 5,
+    "autoDownload": true,
+    "downloadMirror": "https://hf-mirror.com"
   }
 }

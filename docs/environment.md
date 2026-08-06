@@ -9,6 +9,7 @@
 - **Tesseract OCR** — PNG/JPG 图像提取文字需要
 - **Pandoc** — PDF/DOCX 高质量转 Markdown 需要
 - **Python 3.10+** — 启用多路召回/知识图谱功能时需要（LightRAG 依赖），需安装 `lightrag` 包和本地嵌入模型
+- **ONNX Runtime** — 重排序功能需要，随 Maven 依赖自动引入，无需手动安装
 
 ## 技术栈
 

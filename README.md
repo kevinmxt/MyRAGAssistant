@@ -1,6 +1,6 @@
 # MyAIDemo2 - 本地知识库智能问答系统
 
-基于 LangChain4j + DeepSeek + Javalin + Milvus 的本地知识库智能问答系统，支持多模态文档索引、多路召回（稠密+稀疏+知识图谱）和检索增强生成（RAG）。
+基于 LangChain4j + DeepSeek + Javalin + Milvus 的本地知识库智能问答系统，支持多模态文档索引、多路召回（稠密+稀疏+知识图谱）、Cross-Encoder 精排和检索增强生成（RAG）。
 
 ## 项目简介
 
@@ -31,6 +31,7 @@
 - **查询增强** — LLM 驱动的查询改写 + HyDE（假设文档生成）+ RRF 融合，智能适配不同问题类型
 - **多路召回** — 可选的混合召回架构：稠密向量 + 稀疏 BM25 + 知识图谱三路并行检索，RRF 融合提升召回覆盖率
 - **知识图谱** — 集成 LightRAG，支持从已索引文档构建知识图谱，提供实体关系感知的图谱检索
+- **重排序增强** — Cross-Encoder 精排层（bge-reranker-v2-m3），在粗召回后对候选片段进行语义精排，显著提升 Top-K 相关性；模型缺失时自动后台下载，无需配置
 - **自动向量化** — 本地 ONNX 模型生成嵌入向量，支持批量处理
 - **向量数据持久化** — 向量数据存储于 Milvus，通过 Docker volume 持久化，重启后自动恢复
 - **RAG 智能问答** — 基于检索增强生成的智能问答，答案附带参考来源
@@ -155,6 +156,11 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `multiRecall.lightrag.workingDir` | string | `"data/kg"` | LightRAG 工作目录 |
 | `multiRecall.lightrag.embeddingModelPath` | string | `"models/bge-small-zh-v1.5"` | LightRAG 嵌入模型路径 |
 | `multiRecall.lightrag.queryMode` | string | `"hybrid"` | LightRAG 查询模式 |
+| `rerank.modelPath` | string | `"models/bge-reranker-v2-m3"` | 精排模型路径 |
+| `rerank.expansionFactor` | number | `3` | 粗召回扩展倍数（召回 topK × N 个候选给精排筛选） |
+| `rerank.topK` | number | `5` | 精排后最终返回给 LLM 的结果数 |
+| `rerank.autoDownload` | boolean | `true` | 模型缺失时是否自动下载（启动后台异步下载） |
+| `rerank.downloadMirror` | string | `"https://hf-mirror.com"` | 模型下载镜像地址（国内优先，失败回退 HuggingFace） |
 | `chat.memorySize` | number | `10` | 对话记忆窗口（消息数） |
 | `server.port` | number | `8080` | HTTP 服务端口 |
 | `milvus.host` | string | `"localhost"` | Milvus 服务地址 |
@@ -202,6 +208,11 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `RAG_LIGHTRAG_WORKDIR` | `multiRecall.lightrag.workingDir` |
 | `RAG_LIGHTRAG_EMBEDDING` | `multiRecall.lightrag.embeddingModelPath` |
 | `RAG_LIGHTRAG_QUERY_MODE` | `multiRecall.lightrag.queryMode` |
+| `RAG_RERANK_MODEL_PATH` | `rerank.modelPath` |
+| `RAG_RERANK_EXPANSION_FACTOR` | `rerank.expansionFactor` |
+| `RAG_RERANK_TOP_K` | `rerank.topK` |
+| `RAG_RERANK_AUTO_DOWNLOAD` | `rerank.autoDownload` |
+| `RAG_RERANK_DOWNLOAD_MIRROR` | `rerank.downloadMirror` |
 
 ## API 文档
 
@@ -350,6 +361,7 @@ MyAIDemo2/
     │           │   ├── ServerConfig.java            # 服务器配置接口
     │           │   ├── MilvusConfig.java            # Milvus 配置接口
     │           │   ├── RecallConfig.java            # 多路召回 + LightRAG 配置接口
+    │           │   ├── RerankConfig.java            # 重排序配置接口
     │           │   └── ChunkingConfig.java          # 切分配置接口
     │           ├── controller/
     │           │   ├── ChatController.java            # 对话 API
@@ -374,6 +386,9 @@ MyAIDemo2/
     │               │       ├── GraphRecallStrategy.java   # LightRAG 图谱检索
     │               │       ├── MultiRecallRouter.java     # 多路召回路由器
     │               │       └── LightRagBridge.java        # Python LightRAG 桥接
+    │               └── rerank/
+    │                   ├── Reranker.java              # 重排序接口
+    │                   └── CrossEncoderReranker.java  # ONNX Cross-Encoder 精排
     │               └── chunking/
     │                   ├── ChunkingPipeline.java   # 切分管线编排
     │                   ├── DocStructure.java等     # 数据结构
@@ -412,6 +427,8 @@ MyAIDemo2/
             │   │       ├── GraphRecallStrategyTest.java   # 图谱召回测试
             │   │       ├── MultiRecallRouterTest.java     # 多路召回路由器测试
             │   │       └── MultiRecallRouterIT.java       # 多路召回集成测试
+            │   └── rerank/
+            │       └── CrossEncoderRerankerTest.java   # 精排器测试
             │   └── chunking/
             │       ├── ChunkingPipelineTest.java       # 管线测试
             │       ├── analyzer/

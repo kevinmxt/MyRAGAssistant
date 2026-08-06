@@ -10,5 +10,6 @@
 | 智能切分 | `service/chunking/` | 文档分块管线：结构分析 → 策略分类 → 语义切分 → 小模型精炼 |
 | 查询增强 | `service/vector/` | QueryRewriter / HyDEGenerator / QueryEnhancementRouter / ContextualEnricher / RrfFusion |
 | 多路召回 | `service/vector/recall/` | RecallStrategy 接口 + Dense/Sparse/Graph 三路实现 + MultiRecallRouter 编排 |
+| 重排序 | `service/vector/rerank/` | Reranker 接口 + CrossEncoderReranker（ONNX bge-reranker-v2-m3 精排） |
 | LightRAG 桥接 | `service/vector/recall/LightRagBridge` | Python 常驻子进程桥接，JSON 协议通信 |
 | 控制器 | `controller/` | ChatController / DocumentController / KnowledgeGraphController（薄胶水层） |

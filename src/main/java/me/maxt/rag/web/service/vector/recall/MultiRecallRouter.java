@@ -79,7 +79,9 @@ public class MultiRecallRouter {
                     .toList();
         }
 
-        return RrfFusion.fuseN(resultGroups, config.getRecallTopK(), config.getRecallRrfK());
+        // 融合上限用 perStrategyTopK（= recallTopK × 扩倍数），
+        // 否则候选在精排之前就被裁剪回 recallTopK，精排变成空操作
+        return RrfFusion.fuseN(resultGroups, perStrategyTopK, config.getRecallRrfK());
     }
 
     private List<String> resolveModes(List<String> requestedModes) {

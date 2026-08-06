@@ -213,6 +213,11 @@ public class RAGService {
     private List<EmbeddingMatch<TextSegment>> rerankIfAvailable(String query,
                                                                 List<EmbeddingMatch<TextSegment>> matches) {
         if (reranker == null || !reranker.isAvailable()) {
+            // 精排不可用：按召回 topK 裁剪，保持与未启用精排时一致的行为；
+            // topK 未配置（<=0）时视为无限制，避免误裁掉全部结果
+            if (recallConfig != null && recallConfig.getRecallTopK() > 0) {
+                return matches.stream().limit(recallConfig.getRecallTopK()).toList();
+            }
             return matches;
         }
         int topK = (config instanceof RerankConfig rc) ? rc.getRerankTopK() : config.getMaxResults();

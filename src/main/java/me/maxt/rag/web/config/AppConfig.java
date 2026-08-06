@@ -25,7 +25,7 @@ import java.util.Map;
  * @author maxt
  * @since 1.0
  */
-public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig {
+public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig, RerankConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
@@ -160,6 +160,17 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** LightRAG 查询模式，可通过环境变量 RAG_LIGHTRAG_QUERY_MODE 覆盖 */
     private String lightRagQueryMode;
 
+    // ========== 重排序参数 ==========
+
+    /** ONNX 精排模型路径，可通过环境变量 RAG_RERANK_MODEL_PATH 覆盖 */
+    private String rerankModelPath;
+
+    /** 粗召回扩展倍数，可通过环境变量 RAG_RERANK_EXPANSION_FACTOR 覆盖 */
+    private int rerankExpansionFactor;
+
+    /** 精排后返回给 LLM 的结果数，可通过环境变量 RAG_RERANK_TOP_K 覆盖 */
+    private int rerankTopK;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -203,6 +214,9 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.lightRagWorkingDir = "data/kg";
         this.lightRagEmbeddingModelPath = "models/bge-small-zh-v1.5";
         this.lightRagQueryMode = "hybrid";
+        this.rerankModelPath = "models/bge-reranker-v2-m3";
+        this.rerankExpansionFactor = 3;
+        this.rerankTopK = 5;
     }
 
     /**
@@ -330,6 +344,13 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
                 config.lightRagQueryMode = getString(lightrag, "queryMode", config.lightRagQueryMode);
             }
         }
+
+        Map<String, Object> rerank = (Map<String, Object>) fileConfig.get("rerank");
+        if (rerank != null) {
+            config.rerankModelPath = getString(rerank, "modelPath", config.rerankModelPath);
+            config.rerankExpansionFactor = getInt(rerank, "expansionFactor", config.rerankExpansionFactor);
+            config.rerankTopK = getInt(rerank, "topK", config.rerankTopK);
+        }
     }
 
     /**
@@ -378,6 +399,9 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.lightRagWorkingDir = env("RAG_LIGHTRAG_WORKDIR", config.lightRagWorkingDir);
         config.lightRagEmbeddingModelPath = env("RAG_LIGHTRAG_EMBEDDING", config.lightRagEmbeddingModelPath);
         config.lightRagQueryMode = env("RAG_LIGHTRAG_QUERY_MODE", config.lightRagQueryMode);
+        config.rerankModelPath = env("RAG_RERANK_MODEL_PATH", config.rerankModelPath);
+        config.rerankExpansionFactor = envInt("RAG_RERANK_EXPANSION_FACTOR", config.rerankExpansionFactor);
+        config.rerankTopK = envInt("RAG_RERANK_TOP_K", config.rerankTopK);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -506,4 +530,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public String getLightRagEmbeddingModelPath() { return lightRagEmbeddingModelPath; }
     /** @return LightRAG 查询模式 */
     public String getLightRagQueryMode() { return lightRagQueryMode; }
+    /** @return ONNX 精排模型路径 */
+    public String getRerankModelPath() { return rerankModelPath; }
+    /** @return 粗召回扩展倍数 */
+    public int getRerankExpansionFactor() { return rerankExpansionFactor; }
+    /** @return 精排后返回给 LLM 的结果数 */
+    public int getRerankTopK() { return rerankTopK; }
 }

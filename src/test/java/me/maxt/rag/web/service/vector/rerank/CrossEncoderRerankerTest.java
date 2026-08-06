@@ -18,6 +18,7 @@ class CrossEncoderRerankerTest {
     void shouldDegradeWhenModelNotFound() {
         RerankConfig config = mock(RerankConfig.class);
         when(config.getRerankModelPath()).thenReturn("./nonexistent/path");
+        when(config.isRerankAutoDownload()).thenReturn(false);
         when(config.getRerankExpansionFactor()).thenReturn(3);
         when(config.getRerankTopK()).thenReturn(5);
 
@@ -31,6 +32,7 @@ class CrossEncoderRerankerTest {
     void shouldReturnCandidatesAsIsWhenNotAvailable() {
         RerankConfig config = mock(RerankConfig.class);
         when(config.getRerankModelPath()).thenReturn("./nonexistent/path");
+        when(config.isRerankAutoDownload()).thenReturn(false);
         CrossEncoderReranker reranker = new CrossEncoderReranker(config);
 
         TextSegment seg1 = TextSegment.from("candidate 1");
@@ -60,6 +62,7 @@ class CrossEncoderRerankerTest {
     void shouldHandleEmptyCandidates() {
         RerankConfig config = mock(RerankConfig.class);
         when(config.getRerankModelPath()).thenReturn("./nonexistent/path");
+        when(config.isRerankAutoDownload()).thenReturn(false);
         CrossEncoderReranker reranker = new CrossEncoderReranker(config);
 
         var result = reranker.rerank("test query", List.of(), 5);

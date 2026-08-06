@@ -10,7 +10,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class CrossEncoderReranker implements Reranker {
@@ -28,6 +35,10 @@ public class CrossEncoderReranker implements Reranker {
         File modelDir = new File(modelPath);
         File onnxFile = new File(modelDir, "model.onnx");
         File tokenizerFile = new File(modelDir, "tokenizer.json");
+
+        if (!onnxFile.exists() && config.isRerankAutoDownload()) {
+            downloadModel(modelDir, config);
+        }
 
         if (!onnxFile.exists()) {
             log.warn("精排模型未找到 ({}), 重排序已降级跳过", onnxFile.getAbsolutePath());
@@ -129,6 +140,53 @@ public class CrossEncoderReranker implements Reranker {
         } catch (OrtException e) {
             log.error("精排推理失败: {}", e.getMessage());
             return candidates.stream().limit(topK).toList();
+        }
+    }
+
+    private static void downloadModel(File modelDir, RerankConfig config) {
+        String mirror = config.getRerankDownloadMirror();
+        if (!mirror.endsWith("/")) mirror += "/";
+        String repo = "BAAI/bge-reranker-v2-m3/resolve/main/onnx/";
+        String[] files = {"model.onnx", "tokenizer.json"};
+
+        modelDir.mkdirs();
+
+        for (String file : files) {
+            File dest = new File(modelDir, file);
+            // 两个源：镜像优先，HF 回退
+            String[] urls = {
+                    mirror + repo + file,
+                    "https://huggingface.co/" + repo + file
+            };
+            boolean downloaded = false;
+            for (String url : urls) {
+                try {
+                    log.info("正在下载精排模型文件: {} → {}", url, dest.getAbsolutePath());
+                    HttpURLConnection conn = (HttpURLConnection) URI.create(url).toURL().openConnection();
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(120000);
+                    conn.setRequestProperty("User-Agent", "MyAIDemo2/1.0");
+                    if (conn.getResponseCode() == 302) {
+                        String redirect = conn.getHeaderField("Location");
+                        conn.disconnect();
+                        conn = (HttpURLConnection) URI.create(redirect).toURL().openConnection();
+                        conn.setConnectTimeout(10000);
+                        conn.setReadTimeout(120000);
+                        conn.setRequestProperty("User-Agent", "MyAIDemo2/1.0");
+                    }
+                    try (InputStream in = conn.getInputStream()) {
+                        Files.copy(in, dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    log.info("精排模型文件下载完成: {}", file);
+                    downloaded = true;
+                    break;
+                } catch (IOException e) {
+                    log.debug("从 {} 下载失败: {}", url, e.getMessage());
+                }
+            }
+            if (!downloaded) {
+                log.warn("精排模型文件 {} 下载失败，已尝试镜像和 HuggingFace", file);
+            }
         }
     }
 

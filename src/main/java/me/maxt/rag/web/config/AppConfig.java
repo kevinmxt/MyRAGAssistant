@@ -171,6 +171,12 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** 精排后返回给 LLM 的结果数，可通过环境变量 RAG_RERANK_TOP_K 覆盖 */
     private int rerankTopK;
 
+    /** 模型文件缺失时是否自动下载，可通过环境变量 RAG_RERANK_AUTO_DOWNLOAD 覆盖 */
+    private boolean rerankAutoDownload;
+
+    /** 模型下载镜像地址，可通过环境变量 RAG_RERANK_DOWNLOAD_MIRROR 覆盖 */
+    private String rerankDownloadMirror;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -217,6 +223,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.rerankModelPath = "models/bge-reranker-v2-m3";
         this.rerankExpansionFactor = 3;
         this.rerankTopK = 5;
+        this.rerankAutoDownload = true;
+        this.rerankDownloadMirror = "https://hf-mirror.com";
     }
 
     /**
@@ -350,6 +358,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             config.rerankModelPath = getString(rerank, "modelPath", config.rerankModelPath);
             config.rerankExpansionFactor = getInt(rerank, "expansionFactor", config.rerankExpansionFactor);
             config.rerankTopK = getInt(rerank, "topK", config.rerankTopK);
+            config.rerankAutoDownload = getBoolean(rerank, "autoDownload", config.rerankAutoDownload);
+            config.rerankDownloadMirror = getString(rerank, "downloadMirror", config.rerankDownloadMirror);
         }
     }
 
@@ -402,6 +412,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.rerankModelPath = env("RAG_RERANK_MODEL_PATH", config.rerankModelPath);
         config.rerankExpansionFactor = envInt("RAG_RERANK_EXPANSION_FACTOR", config.rerankExpansionFactor);
         config.rerankTopK = envInt("RAG_RERANK_TOP_K", config.rerankTopK);
+        config.rerankAutoDownload = envBool("RAG_RERANK_AUTO_DOWNLOAD", config.rerankAutoDownload);
+        config.rerankDownloadMirror = env("RAG_RERANK_DOWNLOAD_MIRROR", config.rerankDownloadMirror);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -536,4 +548,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public int getRerankExpansionFactor() { return rerankExpansionFactor; }
     /** @return 精排后返回给 LLM 的结果数 */
     public int getRerankTopK() { return rerankTopK; }
+    /** @return 模型文件缺失时是否自动下载 */
+    public boolean isRerankAutoDownload() { return rerankAutoDownload; }
+    /** @return 模型下载镜像地址 */
+    public String getRerankDownloadMirror() { return rerankDownloadMirror; }
 }

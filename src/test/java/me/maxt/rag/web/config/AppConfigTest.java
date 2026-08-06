@@ -108,5 +108,7 @@ class AppConfigTest {
         assertThat(config.getRerankModelPath()).isEqualTo("models/bge-reranker-v2-m3");
         assertThat(config.getRerankExpansionFactor()).isEqualTo(3);
         assertThat(config.getRerankTopK()).isEqualTo(5);
+        assertThat(config.isRerankAutoDownload()).isTrue();
+        assertThat(config.getRerankDownloadMirror()).isEqualTo("https://hf-mirror.com");
     }
 }

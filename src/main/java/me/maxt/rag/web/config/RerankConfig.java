@@ -9,4 +9,10 @@ public interface RerankConfig {
 
     /** 精排后返回给 LLM 的结果数，默认 5 */
     int getRerankTopK();
+
+    /** 模型文件缺失时是否自动下载，默认 true */
+    boolean isRerankAutoDownload();
+
+    /** 模型下载镜像地址，默认 https://hf-mirror.com */
+    String getRerankDownloadMirror();
 }

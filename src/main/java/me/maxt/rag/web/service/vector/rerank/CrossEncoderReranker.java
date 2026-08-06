@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.file.Files;
@@ -25,53 +24,50 @@ public class CrossEncoderReranker implements Reranker {
     private static final Logger log = LoggerFactory.getLogger(CrossEncoderReranker.class);
     private static final int MAX_SEQ_LENGTH = 512;
 
-    private final OrtEnvironment env;
-    private final OrtSession session;
-    private final HuggingFaceTokenizer tokenizer;
-    private final boolean available;
+    private volatile OrtEnvironment env;
+    private volatile OrtSession session;
+    private volatile HuggingFaceTokenizer tokenizer;
+    private volatile boolean available;
 
     public CrossEncoderReranker(RerankConfig config) {
         String modelPath = config.getRerankModelPath();
         File modelDir = new File(modelPath);
         File onnxFile = new File(modelDir, "model.onnx");
-        File tokenizerFile = new File(modelDir, "tokenizer.json");
 
-        if (!onnxFile.exists() && config.isRerankAutoDownload()) {
-            downloadModel(modelDir, config);
-        }
-
-        if (!onnxFile.exists()) {
+        if (onnxFile.exists()) {
+            loadModel(modelDir, onnxFile, modelPath, config);
+        } else if (config.isRerankAutoDownload()) {
+            log.info("精排模型未找到，启动后台下载 ({}), 应用正常启动，下载完成后自动启用精排", modelPath);
+            Thread downloadThread = new Thread(() -> {
+                downloadModel(modelDir, config);
+                if (onnxFile.exists()) {
+                    loadModel(modelDir, onnxFile, modelPath, config);
+                } else {
+                    log.warn("精排模型下载失败，重排序不可用");
+                }
+            }, "rerank-model-download");
+            downloadThread.setDaemon(true);
+            downloadThread.start();
+        } else {
             log.warn("精排模型未找到 ({}), 重排序已降级跳过", onnxFile.getAbsolutePath());
-            this.env = null;
-            this.session = null;
-            this.tokenizer = null;
-            this.available = false;
-            return;
         }
+    }
 
-        // 用局部变量承载加载结果，避免 final 字段在 try/catch 双路径上重复赋值
-        OrtEnvironment loadedEnv = null;
-        OrtSession loadedSession = null;
-        HuggingFaceTokenizer loadedTokenizer = null;
-        boolean loaded = false;
+    private void loadModel(File modelDir, File onnxFile, String modelPath, RerankConfig config) {
+        File tokenizerFile = new File(modelDir, "tokenizer.json");
         try {
-            loadedEnv = OrtEnvironment.getEnvironment();
+            this.env = OrtEnvironment.getEnvironment();
             var sessionOptions = new OrtSession.SessionOptions();
-            loadedSession = loadedEnv.createSession(onnxFile.getAbsolutePath(), sessionOptions);
-            loadedTokenizer = tokenizerFile.exists()
+            this.session = env.createSession(onnxFile.getAbsolutePath(), sessionOptions);
+            this.tokenizer = tokenizerFile.exists()
                     ? HuggingFaceTokenizer.newInstance(tokenizerFile.toPath())
                     : HuggingFaceTokenizer.newInstance(Path.of(modelPath));
-            loaded = true;
-            log.info("精排模型已加载: {} ({} 候选扩倍数, topK={})",
+            this.available = true;
+            log.info("精排模型已加载: {} (候选扩倍数={}, 精排TopK={})",
                     onnxFile.getAbsolutePath(), config.getRerankExpansionFactor(), config.getRerankTopK());
         } catch (Exception e) {
-            // 任何加载失败（模型损坏、tokenizer 异常等）都降级，不抛出异常中断应用启动
             log.error("加载精排模型失败: {}", e.getMessage());
         }
-        this.env = loadedEnv;
-        this.session = loadedSession;
-        this.tokenizer = loadedTokenizer;
-        this.available = loaded;
     }
 
     @Override
@@ -89,19 +85,22 @@ public class CrossEncoderReranker implements Reranker {
         if (candidates.isEmpty()) {
             return List.of();
         }
-        if (!available) {
+        // 读取 volatile 快照，避免并发修改 NPE
+        OrtSession s = this.session;
+        HuggingFaceTokenizer t = this.tokenizer;
+        OrtEnvironment e = this.env;
+        if (!available || s == null || t == null || e == null) {
             return candidates.stream().limit(topK).toList();
         }
 
         int n = candidates.size();
-        // bge-reranker-v2-m3 的 token 输入是 int64，需用 long[][]（float32 会导致推理失败）
         long[][] inputIds = new long[n][MAX_SEQ_LENGTH];
         long[][] attentionMask = new long[n][MAX_SEQ_LENGTH];
         long[][] tokenTypeIds = new long[n][MAX_SEQ_LENGTH];
 
         for (int i = 0; i < n; i++) {
             String passage = candidates.get(i).embedded().text();
-            Encoding encoding = tokenizer.encode(query, passage);
+            Encoding encoding = t.encode(query, passage);
             long[] ids = encoding.getIds();
             long[] attention = encoding.getAttentionMask();
             long[] typeIds = encoding.getTypeIds();
@@ -114,17 +113,15 @@ public class CrossEncoderReranker implements Reranker {
             }
         }
 
-        // try-with-resources 确保 OnnxTensor 与 OrtResult 被关闭，避免原生内存泄漏
-        try (var inputIdsTensor = OnnxTensor.createTensor(env, inputIds);
-             var attentionMaskTensor = OnnxTensor.createTensor(env, attentionMask);
-             var tokenTypeIdsTensor = OnnxTensor.createTensor(env, tokenTypeIds);
-             var results = session.run(Map.of(
+        try (var inputIdsTensor = OnnxTensor.createTensor(e, inputIds);
+             var attentionMaskTensor = OnnxTensor.createTensor(e, attentionMask);
+             var tokenTypeIdsTensor = OnnxTensor.createTensor(e, tokenTypeIds);
+             var results = s.run(Map.of(
                      "input_ids", inputIdsTensor,
                      "attention_mask", attentionMaskTensor,
                      "token_type_ids", tokenTypeIdsTensor))) {
             var logits = (float[][]) results.get(0).getValue();
 
-            // sigmoid + 按分数降序取 topK
             List<ScoredMatch> scored = new ArrayList<>();
             for (int i = 0; i < n; i++) {
                 float sigmoidScore = 1.0f / (1.0f + (float) Math.exp(-logits[i][0]));
@@ -137,8 +134,8 @@ public class CrossEncoderReranker implements Reranker {
                     .limit(topK)
                     .map(sm -> sm.match)
                     .toList();
-        } catch (OrtException e) {
-            log.error("精排推理失败: {}", e.getMessage());
+        } catch (OrtException ex) {
+            log.error("精排推理失败: {}", ex.getMessage());
             return candidates.stream().limit(topK).toList();
         }
     }
@@ -153,7 +150,6 @@ public class CrossEncoderReranker implements Reranker {
 
         for (String file : files) {
             File dest = new File(modelDir, file);
-            // 两个源：镜像优先，HF 回退
             String[] urls = {
                     mirror + repo + file,
                     "https://huggingface.co/" + repo + file
@@ -161,19 +157,21 @@ public class CrossEncoderReranker implements Reranker {
             boolean downloaded = false;
             for (String url : urls) {
                 try {
-                    log.info("正在下载精排模型文件: {} → {}", url, dest.getAbsolutePath());
                     HttpURLConnection conn = (HttpURLConnection) URI.create(url).toURL().openConnection();
                     conn.setConnectTimeout(10000);
-                    conn.setReadTimeout(120000);
+                    conn.setReadTimeout(300000);
                     conn.setRequestProperty("User-Agent", "MyAIDemo2/1.0");
                     if (conn.getResponseCode() == 302) {
                         String redirect = conn.getHeaderField("Location");
                         conn.disconnect();
                         conn = (HttpURLConnection) URI.create(redirect).toURL().openConnection();
                         conn.setConnectTimeout(10000);
-                        conn.setReadTimeout(120000);
+                        conn.setReadTimeout(300000);
                         conn.setRequestProperty("User-Agent", "MyAIDemo2/1.0");
                     }
+                    long total = conn.getContentLengthLong();
+                    log.info("正在下载精排模型文件: {} ({} MB), 请耐心等待...",
+                            file, total > 0 ? String.format("%.1f", total / 1048576.0) : "未知大小");
                     try (InputStream in = conn.getInputStream()) {
                         Files.copy(in, dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
                     }

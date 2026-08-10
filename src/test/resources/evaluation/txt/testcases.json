@@ -1,1 +1,21 @@
-{ "format": "txt", "version": "1.0", "testCases": [] }
+{
+  "format": "txt",
+  "version": "1.0",
+  "created": "2026-08-10",
+  "testCases": [
+    {
+      "id": "txt-001",
+      "query": "v1.2.0 版本新增了什么功能？",
+      "relevantDocs": ["changelog.txt"],
+      "relevantContent": ["多路召回", "Dense + Sparse + Graph", "LightRAG"],
+      "expectedAnswer": "v1.2.0 新增了多路召回架构（Dense + Sparse + Graph 三路并行检索）、LightRAG 知识图谱集成和 RRF 融合算法。"
+    },
+    {
+      "id": "txt-002",
+      "query": "部署 MyAIDemo2 需要启动哪些 Docker 服务？",
+      "relevantDocs": ["deployment.txt"],
+      "relevantContent": ["Milvus standalone", "etcd", "MinIO"],
+      "expectedAnswer": "部署需要启动 Milvus standalone（向量数据库）、etcd（元数据存储）和 MinIO（对象存储）三个 Docker 服务。"
+    }
+  ]
+}

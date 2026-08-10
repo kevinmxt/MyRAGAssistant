@@ -1,1 +1,14 @@
-{ "format": "json", "version": "1.0", "testCases": [] }
+{
+  "format": "json",
+  "version": "1.0",
+  "created": "2026-08-10",
+  "testCases": [
+    {
+      "id": "json-001",
+      "query": "Milvus 向量数据库的默认连接地址和端口是什么？",
+      "relevantDocs": ["system-config.json"],
+      "relevantContent": ["localhost", "19530"],
+      "expectedAnswer": "Milvus 默认连接地址是 localhost，端口是 19530。"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "format" : "markdown",
+  "format" : "txt",
   "version" : "1.0",
   "timestamp" : "2026-08-10T15:52:32",
   "type" : "baseline",
@@ -48,19 +48,19 @@
     }
   },
   "perTestCase" : [ {
-    "id" : "md-001",
-    "recallAtK" : 1.0,
-    "precisionAtK" : 0.5,
-    "mrr" : 1.0,
-    "ndcgAtK" : 1.0,
-    "faithfulness" : 3,
-    "answerRelevancy" : 3
-  }, {
-    "id" : "md-002",
+    "id" : "txt-001",
     "recallAtK" : 1.0,
     "precisionAtK" : 0.5,
     "mrr" : 0.5,
     "ndcgAtK" : 0.6309297535714574,
+    "faithfulness" : 3,
+    "answerRelevancy" : 3
+  }, {
+    "id" : "txt-002",
+    "recallAtK" : 1.0,
+    "precisionAtK" : 0.5,
+    "mrr" : 1.0,
+    "ndcgAtK" : 1.0,
     "faithfulness" : 3,
     "answerRelevancy" : 3
   } ],

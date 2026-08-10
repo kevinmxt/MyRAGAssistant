@@ -1,1 +1,14 @@
-{ "format": "pdf", "version": "1.0", "testCases": [] }
+{
+  "format": "pdf",
+  "version": "1.0",
+  "created": "2026-08-10",
+  "testCases": [
+    {
+      "id": "pdf-001",
+      "query": "MyAIDemo2 系统分为哪几层架构？",
+      "relevantDocs": ["architecture.pdf"],
+      "relevantContent": ["Access Layer", "Service Layer", "Data Layer"],
+      "expectedAnswer": "MyAIDemo2 采用三层架构：接入层（Access Layer）处理 HTTP 请求，服务层（Service Layer）包含核心业务逻辑，数据层（Data Layer）管理持久化存储。"
+    }
+  ]
+}

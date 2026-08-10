@@ -1,11 +1,21 @@
 {
   "format": "markdown",
   "version": "1.0",
+  "created": "2026-08-10",
   "testCases": [
     {
       "id": "md-001",
-      "query": "测试问题",
-      "relevantDocs": ["test.md"]
+      "query": "MyAIDemo2 使用什么技术栈？",
+      "relevantDocs": ["project-overview.md"],
+      "relevantContent": ["LangChain4j", "Milvus", "Javalin", "BGE-small-zh-v1.5"],
+      "expectedAnswer": "MyAIDemo2 使用 Javalin 作为应用框架，LangChain4j 作为 LLM 框架，Milvus 作为向量数据库，BGE-small-zh-v1.5 作为嵌入模型。"
+    },
+    {
+      "id": "md-002",
+      "query": "如何向知识库上传文档？",
+      "relevantDocs": ["api-usage.md"],
+      "relevantContent": ["POST /api/documents/upload", "multipart/form-data"],
+      "expectedAnswer": "通过 POST /api/documents/upload 接口上传文档，使用 multipart/form-data 格式，参数包含 file（必填）和 format（可选）。"
     }
   ]
 }

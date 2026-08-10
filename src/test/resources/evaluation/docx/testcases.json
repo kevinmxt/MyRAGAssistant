@@ -1,1 +1,14 @@
-{ "format": "docx", "version": "1.0", "testCases": [] }
+{
+  "format": "docx",
+  "version": "1.0",
+  "created": "2026-08-10",
+  "testCases": [
+    {
+      "id": "docx-001",
+      "query": "开发 MyAIDemo2 需要安装哪些工具？",
+      "relevantDocs": ["dev-guide.docx"],
+      "relevantContent": ["JDK 21", "Maven", "Docker", "Git"],
+      "expectedAnswer": "开发环境需要安装 JDK 21+、Maven 3.9+、Docker 20.10+、Git 和 IntelliJ IDEA（推荐）。"
+    }
+  ]
+}

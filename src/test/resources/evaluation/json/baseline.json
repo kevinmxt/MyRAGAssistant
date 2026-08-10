@@ -1,35 +1,35 @@
 {
-  "format" : "markdown",
+  "format" : "json",
   "version" : "1.0",
-  "timestamp" : "2026-08-10T15:52:32",
+  "timestamp" : "2026-08-10T15:52:33",
   "type" : "baseline",
   "metrics" : {
     "recallAtK" : {
       "score" : 1.0,
       "details" : {
-        "total" : 2,
-        "passed" : 2
+        "total" : 1,
+        "passed" : 1
       }
     },
     "precisionAtK" : {
-      "score" : 0.5,
+      "score" : 1.0,
       "details" : {
-        "total" : 2,
-        "passed" : 2
+        "total" : 1,
+        "passed" : 1
       }
     },
     "mrr" : {
-      "score" : 0.75,
+      "score" : 1.0,
       "details" : {
-        "total" : 2,
-        "passed" : 2
+        "total" : 1,
+        "passed" : 1
       }
     },
     "ndcgAtK" : {
-      "score" : 0.8154648767857287,
+      "score" : 1.0,
       "details" : {
-        "total" : 2,
-        "passed" : 2
+        "total" : 1,
+        "passed" : 1
       }
     }
   },
@@ -48,19 +48,11 @@
     }
   },
   "perTestCase" : [ {
-    "id" : "md-001",
+    "id" : "json-001",
     "recallAtK" : 1.0,
-    "precisionAtK" : 0.5,
+    "precisionAtK" : 1.0,
     "mrr" : 1.0,
     "ndcgAtK" : 1.0,
-    "faithfulness" : 3,
-    "answerRelevancy" : 3
-  }, {
-    "id" : "md-002",
-    "recallAtK" : 1.0,
-    "precisionAtK" : 0.5,
-    "mrr" : 0.5,
-    "ndcgAtK" : 0.6309297535714574,
     "faithfulness" : 3,
     "answerRelevancy" : 3
   } ],

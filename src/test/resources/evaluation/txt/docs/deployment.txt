@@ -1,0 +1,65 @@
+MyAIDemo2 部署指南
+
+========================================
+一、环境要求
+========================================
+  - JDK 21 或更高版本
+  - Maven 3.9+
+  - Docker 20.10+ (用于运行 Milvus)
+  - 至少 8GB 可用内存
+  - 建议 SSD 磁盘用于模型和向量数据存储
+
+========================================
+二、Docker 部署
+========================================
+
+步骤 1: 启动 Milvus 向量数据库
+  cd MyAIDemo2
+  docker compose up -d
+
+  该命令会启动以下服务:
+  - Milvus standalone (向量数据库)
+  - etcd (元数据存储)
+  - MinIO (对象存储)
+
+  验证 Milvus 运行状态:
+  docker compose ps
+
+步骤 2: 构建应用
+  mvn clean package -DskipTests
+
+步骤 3: 启动应用
+  java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
+
+  应用将在 http://localhost:8080 启动。
+
+步骤 4: 验证服务
+  curl http://localhost:8080/api/knowledge-base/status
+
+========================================
+三、配置说明
+========================================
+
+  首次运行前，复制配置模板:
+  cp config.example.json config.json
+
+  编辑 config.json 设置:
+  - LLM 连接信息 (llm.baseUrl, llm.modelName)
+  - 嵌入模型路径 (embedding.modelPath)
+  - Milvus 连接信息 (milvus.host, milvus.port)
+
+  也支持通过环境变量配置:
+  export LLM_BASE_URL=http://localhost:11434/v1
+  export LLM_MODEL_NAME=qwen2.5:7b
+  export MILVUS_HOST=localhost
+  export MILVUS_PORT=19530
+
+========================================
+四、模型文件准备
+========================================
+
+  首次运行时会自动下载以下模型:
+  - BGE-small-zh-v1.5 (嵌入模型, ~100MB)
+  - bge-reranker-v2-m3 (精排模型, ~1.5GB)
+
+  也可手动下载后放到 models/ 目录下。

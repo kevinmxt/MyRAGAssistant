@@ -5,6 +5,12 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import io.milvus.v2.client.MilvusClientV2;
+import io.milvus.v2.service.vector.request.QueryReq;
+import io.milvus.v2.service.vector.response.QueryResp;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>内部维护轻量级文档元数据索引，支持 {@link #getDocumentIndex()} 查询已索引文档摘要。</p>
  */
 public class EmbeddingStoreManager {
+
+    private static final Logger log = LoggerFactory.getLogger(EmbeddingStoreManager.class);
 
     private final EmbeddingStore<TextSegment> embeddingStore;
 
@@ -85,6 +93,48 @@ public class EmbeddingStoreManager {
      */
     public Map<String, DocEntry> getDocumentIndex() {
         return docIndex;
+    }
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /**
+     * 从 Milvus 重建文档元数据索引，用于重启后恢复。
+     * MilvusEmbeddingStore 将 metadata 存为单个 JSON 字段（{@code metadata}），
+     * 这里查询全量实体的 metadata JSON，解析后按 file_name 分组统计。
+     */
+    @SuppressWarnings("unchecked")
+    public void rebuildIndexFromMilvus(MilvusClientV2 milvusClient, String collectionName) {
+        try {
+            QueryReq req = QueryReq.builder()
+                    .collectionName(collectionName)
+                    .filter("id != \"\"")
+                    .outputFields(List.of("metadata"))
+                    .limit(10000)
+                    .build();
+            QueryResp resp = milvusClient.query(req);
+            int count = 0;
+            for (QueryResp.QueryResult qr : resp.getQueryResults()) {
+                Map<String, Object> entity = qr.getEntity();
+                Object metaObj = entity.get("metadata");
+                if (metaObj == null) continue;
+                Map<String, Object> meta;
+                if (metaObj instanceof Map) {
+                    meta = (Map<String, Object>) metaObj;
+                } else {
+                    meta = MAPPER.readValue(metaObj.toString(), Map.class);
+                }
+                String fileName = (String) meta.get("file_name");
+                if (fileName == null) continue;
+                String fileType = (String) meta.getOrDefault("file_type", "");
+                String dir = (String) meta.getOrDefault("absolute_directory_path", "");
+                docIndex.merge(fileName, new DocEntry(dir, fileType, 1),
+                        (old, n) -> { old.segmentCount += 1; return old; });
+                count++;
+            }
+            log.info("从 Milvus 重建文档索引完成: {} 个文档, {} 个 chunk", docIndex.size(), count);
+        } catch (Exception e) {
+            log.warn("从 Milvus 重建文档索引失败 (Milvus 可能未启动): {}", e.getMessage());
+        }
     }
 
     /**

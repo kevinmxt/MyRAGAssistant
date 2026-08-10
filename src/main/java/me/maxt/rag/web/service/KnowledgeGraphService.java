@@ -190,7 +190,7 @@ public class KnowledgeGraphService {
         try {
             QueryReq req = QueryReq.builder()
                     .collectionName(config.getMilvusCollectionName())
-                    .filter("file_name == \"" + escapeFilterValue(fileName) + "\"")
+                    .filter("metadata[\"file_name\"] == \"" + escapeFilterValue(fileName) + "\"")
                     .outputFields(List.of("text"))
                     .limit(MAX_CHUNKS_PER_DOC)
                     .build();

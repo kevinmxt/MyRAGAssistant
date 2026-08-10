@@ -12,8 +12,9 @@ class DatasetLoaderTest {
         DatasetFile ds = loader.load("markdown");
         assertThat(ds).isNotNull();
         assertThat(ds.format()).isEqualTo("markdown");
-        assertThat(ds.testCases()).hasSize(1);
+        assertThat(ds.testCases()).hasSize(2);
         assertThat(ds.testCases().get(0).id()).isEqualTo("md-001");
+        assertThat(ds.testCases().get(1).id()).isEqualTo("md-002");
     }
 
     @Test

@@ -91,6 +91,14 @@ public class WebApplication {
 
         this.storeManager = new EmbeddingStoreManager(milvusStore);
 
+        // Milvus v2 原生客户端（用于索引重建、稀疏检索、知识图谱等）
+        MilvusClientV2 milvusClientV2 = new MilvusClientV2(ConnectConfig.builder()
+                .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
+                .build());
+
+        // 从 Milvus 重建文档索引（重启后恢复）
+        storeManager.rebuildIndexFromMilvus(milvusClientV2, config.getMilvusCollectionName());
+
         // Chunking 管线
         MarkdownConverter markdownConverter = new MarkdownConverter();
         StructureAnalyzer structureAnalyzer = new StructureAnalyzer();
@@ -115,9 +123,8 @@ public class WebApplication {
         KnowledgeGraphController kgController = null;
 
         if (config.isMultiRecallEnabled()) {
-            // 召回策略注册表
+            // 召回策略注册表（复用上面创建的 milvusClientV2）
             Map<String, RecallStrategy> registry = new LinkedHashMap<>();
-            MilvusClientV2 milvusClientV2 = getMilvusClient();
             registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
             registry.put("sparse", new SparseRecallStrategy(
                     milvusClientV2, config.getMilvusCollectionName()));
@@ -199,20 +206,6 @@ public class WebApplication {
         if (defaultDocDir.exists() && defaultDocDir.isDirectory()) {
             documentService.ingestDirectory(config.getDocumentDir());
         }
-    }
-
-    /**
-     * 创建 Milvus v2 原生客户端，供 SparseRecallStrategy 使用。
-     *
-     * <p>注意：langchain4j-milvus 1.12.1 的 {@link MilvusEmbeddingStore} 内部持有的是
-     * 旧版 {@code io.milvus.client.MilvusServiceClient}（v1 API），与 v2 的
-     * {@link MilvusClientV2} 无继承关系，无法通过反射复用，因此这里按配置
-     * 新建一个指向同一 Milvus 实例的 v2 客户端连接。</p>
-     */
-    private MilvusClientV2 getMilvusClient() {
-        return new MilvusClientV2(ConnectConfig.builder()
-                .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
-                .build());
     }
 
     public AppConfig getConfig() { return config; }

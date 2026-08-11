@@ -152,6 +152,8 @@ public class CrossEncoderReranker implements Reranker {
             File dest = new File(modelDir, file);
             String[] urls = {
                     mirror + repo + file,
+                    "https://hf-mirror.com/" + repo + file,
+                    "https://www.modelscope.cn/models/BAAI/bge-reranker-v2-m3/resolve/master/onnx/" + file,
                     "https://huggingface.co/" + repo + file
             };
             boolean downloaded = false;
@@ -183,7 +185,7 @@ public class CrossEncoderReranker implements Reranker {
                 }
             }
             if (!downloaded) {
-                log.warn("精排模型文件 {} 下载失败，已尝试镜像和 HuggingFace", file);
+                log.warn("精排模型文件 {} 下载失败，已尝试全部下载源", file);
             }
         }
     }

@@ -12,7 +12,7 @@
 
 ## 配置接口
 
-`AppConfig` 拆分为 7 个聚焦接口：`LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig`、`QueryEnhancementConfig`、`MilvusConfig`、`RecallConfig`。每个 consumer 只依赖它需要的接口。
+`AppConfig` 拆分为 10 个聚焦接口：`LlmConfig`、`RetrievalConfig`、`DocumentConfig`、`ServerConfig`、`QueryEnhancementConfig`、`MilvusConfig`、`RecallConfig`、`RerankConfig`、`EvaluationConfig`、`EnvCheckConfig`。每个 consumer 只依赖它需要的接口。
 
 ## 启动组装
 
@@ -137,6 +137,31 @@ RRF 融合结果 → CrossEncoderReranker (精排) → LLM
 | `KnowledgeGraphController` | KG API 端点：按目录/单文档触发构建，查询构建状态 |
 
 图谱索引由用户通过 API 手动触发，支持按目录或单文档构建。构建状态通过 `AtomicBoolean` + `AtomicReference` 管理，线程安全。
+
+## 环境检测（Environment Check）
+
+`service/environment/` 包实现启动时非阻塞检测所有外部依赖，前端通过 SSE 实时接收状态：
+
+```
+EnvironmentChecker (编排器)
+  ├── PythonChecker          → python --version
+  ├── PipPackageChecker       → pip show lightrag requests
+  ├── MilvusChecker           → TCP connect + gRPC version
+  ├── PandocChecker           → pandoc --version
+  ├── TesseractChecker        → tesseract --version
+  └── ModelFileChecker        → 检查 model.onnx + 嵌入模型路径
+```
+
+| 组件 | 职责 |
+|------|------|
+| `DependencyChecker` | 检测器接口：`check()`、`canAutoInstall()`、`autoInstall(consumer)` |
+| `EnvironmentChecker` | 编排器：并行检测（ExecutorService + invokeAll 超时）、串行安装队列、SSE 广播 |
+| `ProcessRunner` | 进程探测工具：`run()` 超时执行 + `runStreaming()` 流式输出日志 |
+| `EnvironmentController` | REST 端点：`/api/env/status`、`/api/env/stream`(SSE)、`/api/env/install`、`/api/env/check` |
+
+**降级容错**：检测失败不阻塞启动；可选依赖缺失标记为 SKIPPED（非 MISSING）；安装仅支持 pip 包，串行执行；SSE 断连自动重连。
+
+**启用方式**：始终生效，配置 `environment.enabled: false` 可关闭。
 
 ## 测试
 

@@ -5,7 +5,7 @@
 | 命令 | 用途 |
 |------|------|
 | `mvn compile` | 编译 |
-| `mvn test` | 运行 124 个单元测试 |
+| `mvn test` | 运行 126 个单元测试 |
 | `mvn test -P evaluation` | 运行 RAG 效果评估（对比基线） |
 | `mvn test jacoco:report` | 覆盖率报告 → `target/site/jacoco/index.html` |
 | `mvn clean package` | 构建 Fat JAR |

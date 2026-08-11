@@ -1,6 +1,6 @@
 # 测试约定
 
-- JUnit 5 + Mockito + AssertJ，124 个单元测试（26 个测试类）+ 2 个集成测试（`*IT` 命名约定），Service 层覆盖率 >79%
+- JUnit 5 + Mockito + AssertJ，126 个单元测试（26 个测试类）+ 2 个集成测试（`*IT` 命名约定），Service 层覆盖率 >79%
 - **只 mock 系统边界**（EmbeddingModel、ChatModel），不 mock 自己的模块
 - 使用真实 `EmbeddingStoreManager` 实例（注入 `InMemoryEmbeddingStore`）
 - `EmbeddingStoreManagerMilvusIT`（1 个测试）和 `MultiRecallRouterIT`（2 个测试）用 Testcontainers 启动真实 Milvus，surefire 默认排除

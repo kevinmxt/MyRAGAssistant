@@ -40,6 +40,7 @@
 - **支持中文对话** — 系统提示词为中文，对话体验友好
 - **对话记忆** — 基于滑动窗口的多轮对话上下文
 - **依赖注入架构** — 嵌入模型和聊天模型集中创建、构造函数注入，全局共享单实例
+- **环境检测与自动安装** — 启动时后台检测所有外部依赖，前端"环境管理"Tab 实时查看状态，支持一键安装 pip 包，安装进度通过 SSE 实时推送
 
 ## 环境要求
 
@@ -166,6 +167,10 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `evaluation.formats` | array | `["markdown","txt","pdf","docx","json"]` | 启用的评估格式列表 |
 | `evaluation.answerQualityEnabled` | boolean | `true` | 是否默认启用 LLM 答案质量评估 |
 | `evaluation.degradationThreshold` | number | `0.05` | 退化判定阈值（5%） |
+| `environment.enabled` | boolean | `true` | 是否启用环境检测 |
+| `environment.autoInstall` | boolean | `false` | 缺失依赖是否自动安装（需显式开启） |
+| `environment.checkTimeoutSeconds` | number | `15` | 全量环境检测总超时秒数 |
+| `environment.probeTimeoutSeconds` | number | `5` | 单个子进程探测超时秒数 |
 | `chat.memorySize` | number | `10` | 对话记忆窗口（消息数） |
 | `server.port` | number | `8080` | HTTP 服务端口 |
 | `milvus.host` | string | `"localhost"` | Milvus 服务地址 |
@@ -222,6 +227,10 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `RAG_EVALUATION_FORMATS` | `evaluation.formats`（逗号分隔） |
 | `RAG_EVALUATION_ANSWER_QUALITY` | `evaluation.answerQualityEnabled` |
 | `RAG_EVALUATION_DEGRADATION_THRESHOLD` | `evaluation.degradationThreshold` |
+| `RAG_ENV_CHECK_ENABLED` | `environment.enabled` |
+| `RAG_ENV_AUTO_INSTALL` | `environment.autoInstall` |
+| `RAG_ENV_CHECK_TIMEOUT` | `environment.checkTimeoutSeconds` |
+| `RAG_ENV_PROBE_TIMEOUT` | `environment.probeTimeoutSeconds` |
 
 ## API 文档
 
@@ -231,7 +240,7 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 
 **响应：**
 ```json
-{"status": "ok"}
+{"status": "ok", "environment": {"total": 6, "ok": 5, "missing": 0, "error": 0, "skipped": 1}}
 ```
 
 ### `POST /api/chat`
@@ -343,6 +352,36 @@ path 为空时返回根目录（Windows 返回驱动器列表）。
 {"built": true, "buildStatus": "completed", "indexedDocuments": ["doc1.pdf"], "workingDir": "data/kg"}
 ```
 
+### `GET /api/env/status`
+
+获取环境检测状态快照。
+
+**响应：**
+```json
+{
+  "enabled": true,
+  "autoInstall": false,
+  "checkDurationMs": 1234,
+  "summary": {"total": 6, "ok": 4, "missing": 1, "error": 0, "skipped": 1},
+  "installInProgress": false,
+  "dependencies": [
+    {"name": "python", "category": "RUNTIME", "status": "OK", "version": "3.11.8", "message": "...", "canAutoInstall": false}
+  ]
+}
+```
+
+### `GET /api/env/stream`
+
+SSE 实时流，推送环境状态变更和安装进度。事件类型：`check-start`、`check-result`、`status`、`install-log`、`install-done`。
+
+### `POST /api/env/install`
+
+触发依赖安装。请求：`{"name": "lightrag"}`。已有安装进行中时返回 409。
+
+### `POST /api/env/check`
+
+触发全量环境重检（异步，结果通过 SSE 推送）。
+
 ## 项目结构
 
 ```
@@ -358,7 +397,8 @@ MyAIDemo2/
 │       ├── App.java              # 应用入口（薄胶水层）
 │       ├── WebApplication.java   # 启动组装工厂
 │       ├── config/
-│       │   ├── AppConfig.java               # 配置实现（9 个接口）
+│       │   ├── AppConfig.java               # 配置实现（10 个接口）
+│       │   ├── EnvCheckConfig.java          # 环境检测配置接口
 │       │   ├── LlmConfig.java               # LLM 配置接口
 │       │   ├── RetrievalConfig.java         # 检索配置接口
 │       │   ├── DocumentConfig.java          # 文档配置接口
@@ -372,12 +412,24 @@ MyAIDemo2/
 │       ├── controller/
 │       │   ├── ChatController.java            # 对话 API
 │       │   ├── DocumentController.java        # 文档管理 API
+│       │   ├── EnvironmentController.java      # 环境管理 API
 │       │   └── KnowledgeGraphController.java  # KG 构建和管理 API
 │       └── service/
 │           ├── DocumentService.java        # 文档摄入/浏览/列表服务
 │           ├── EmbeddingStoreManager.java  # 向量存储管理
 │           ├── RAGService.java             # RAG 核心服务
 │           ├── KnowledgeGraphService.java  # LightRAG 知识图谱服务
+│           ├── environment/
+│           │   ├── CheckResult.java          # 检测结果记录
+│           │   ├── DependencyChecker.java    # 检测器接口
+│           │   ├── EnvironmentChecker.java   # 编排器（并行检测/安装/SSE）
+│           │   ├── ProcessRunner.java        # 进程探测工具
+│           │   ├── PythonChecker.java        # Python 运行时检测
+│           │   ├── PipPackageChecker.java    # lightrag/requests pip 包检测
+│           │   ├── MilvusChecker.java        # Milvus 连接性检测
+│           │   ├── PandocChecker.java        # Pandoc 检测
+│           │   ├── TesseractChecker.java     # Tesseract OCR 检测
+│           │   └── ModelFileChecker.java     # ONNX 模型文件检测
 │           ├── vector/
 │           │   ├── ContextualEnricher.java       # 上下文增强器
 │           │   ├── QueryEnhancer.java            # 查询增强接口
@@ -481,7 +533,8 @@ MyAIDemo2/
 └── src/main/resources/webapp/
     ├── index.html           # 前端页面
     ├── style.css            # 样式表
-    └── app.js               # 前端逻辑
+    ├── app.js               # 聊天+文档管理逻辑
+    └── env.js               # 环境管理逻辑（SSE + 安装交互）
 ```
 
 ## 注意事项

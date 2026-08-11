@@ -140,19 +140,28 @@ public class CrossEncoderReranker implements Reranker {
         }
     }
 
+    // {本地文件名, 仓库内路径}
+    private static final String[][] MODEL_FILES = {
+            {"model.onnx", "onnx/model.onnx"},
+            {"tokenizer.json", "tokenizer.json"},
+    };
+    private static final String MODEL_REPO = "onnx-community/bge-reranker-v2-m3-ONNX";
+
     private static void downloadModel(File modelDir, RerankConfig config) {
         String mirror = config.getRerankDownloadMirror();
         if (!mirror.endsWith("/")) mirror += "/";
-        String repo = "BAAI/bge-reranker-v2-m3/resolve/main/onnx/";
-        String[] files = {"model.onnx", "tokenizer.json"};
+        String repoPrefix = MODEL_REPO + "/resolve/main/";
 
         modelDir.mkdirs();
 
-        for (String file : files) {
-            File dest = new File(modelDir, file);
+        for (String[] entry : MODEL_FILES) {
+            String localName = entry[0];
+            String repoPath = entry[1];
+            File dest = new File(modelDir, localName);
             String[] urls = {
-                    mirror + repo + file,
-                    "https://huggingface.co/" + repo + file
+                    mirror + repoPrefix + repoPath,
+                    "https://hf-mirror.com/" + repoPrefix + repoPath,
+                    "https://huggingface.co/" + repoPrefix + repoPath
             };
             boolean downloaded = false;
             for (String url : urls) {
@@ -171,11 +180,11 @@ public class CrossEncoderReranker implements Reranker {
                     }
                     long total = conn.getContentLengthLong();
                     log.info("正在下载精排模型文件: {} ({} MB), 请耐心等待...",
-                            file, total > 0 ? String.format("%.1f", total / 1048576.0) : "未知大小");
+                            localName, total > 0 ? String.format("%.1f", total / 1048576.0) : "未知大小");
                     try (InputStream in = conn.getInputStream()) {
                         Files.copy(in, dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
                     }
-                    log.info("精排模型文件下载完成: {}", file);
+                    log.info("精排模型文件下载完成: {}", localName);
                     downloaded = true;
                     break;
                 } catch (IOException e) {
@@ -183,7 +192,7 @@ public class CrossEncoderReranker implements Reranker {
                 }
             }
             if (!downloaded) {
-                log.warn("精排模型文件 {} 下载失败，已尝试镜像和 HuggingFace", file);
+                log.warn("精排模型文件 {} 下载失败，已尝试全部下载源", localName);
             }
         }
     }

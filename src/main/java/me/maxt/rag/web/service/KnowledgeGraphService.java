@@ -1,5 +1,6 @@
 package me.maxt.rag.web.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.service.vector.request.QueryReq;
 import io.milvus.v2.service.vector.response.QueryResp;
@@ -185,19 +186,36 @@ public class KnowledgeGraphService {
         return bridge.insert(docsWithText);
     }
 
-    /** 从 Milvus 按 file_name 过滤查询所有 chunk 的 text 字段并拼接 */
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /**
+     * 从 Milvus 加载指定文档的所有 chunk 文本并拼接。
+     * MilvusEmbeddingStore 将 metadata 存为单个 JSON 字段，不支持服务端 JSON 路径过滤，
+     * 因此查询全量 metadata+text 后在客户端按 file_name 匹配。
+     */
+    @SuppressWarnings("unchecked")
     private String loadDocumentText(String fileName) {
         try {
             QueryReq req = QueryReq.builder()
                     .collectionName(config.getMilvusCollectionName())
-                    .filter("metadata[\"file_name\"] == \"" + escapeFilterValue(fileName) + "\"")
-                    .outputFields(List.of("text"))
+                    .filter("id != \"\"")
+                    .outputFields(List.of("metadata", "text"))
                     .limit(MAX_CHUNKS_PER_DOC)
                     .build();
             QueryResp resp = milvusClient.query(req);
             StringBuilder sb = new StringBuilder();
             for (QueryResp.QueryResult qr : resp.getQueryResults()) {
-                Object text = qr.getEntity().get("text");
+                Map<String, Object> entity = qr.getEntity();
+                Object metaObj = entity.get("metadata");
+                if (metaObj == null) continue;
+                Map<String, Object> meta;
+                if (metaObj instanceof Map) {
+                    meta = (Map<String, Object>) metaObj;
+                } else {
+                    meta = MAPPER.readValue(metaObj.toString(), Map.class);
+                }
+                if (!fileName.equals(meta.get("file_name"))) continue;
+                Object text = entity.get("text");
                 if (text != null) {
                     sb.append(text).append('\n');
                 }
@@ -207,10 +225,5 @@ public class KnowledgeGraphService {
             log.warn("Failed to load document text from Milvus for {}: {}", fileName, e.getMessage());
             return null;
         }
-    }
-
-    /** 转义 Milvus 过滤表达式字符串字面量中的双引号与反斜杠 */
-    private String escapeFilterValue(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

@@ -117,30 +117,26 @@ public class WebApplication {
         QueryEnhancementRouter enhancementRouter = new QueryEnhancementRouter(
                 queryRewriter, hydeGenerator, chatModel, config);
 
-        // 多路召回组件组装（条件启用，默认 disabled 时全部为 null，行为与原来完全一致）
+        // 多路召回组件组装（条件启用）
         MultiRecallRouter multiRecallRouter = null;
-        KnowledgeGraphService kgService = null;
-        KnowledgeGraphController kgController = null;
+
+        // 知识图谱 — 独立于多路召回，始终初始化（失败降级不影响主流程）
+        LightRagBridge lightRagBridge = new LightRagBridge(
+                config.getLightRagPythonPath(), config.getLightRagWorkingDir(),
+                config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode(),
+                config.getApiKey(), config.getBaseUrl(), config.getModelName());
+        lightRagBridge.init();
+        KnowledgeGraphService kgService = new KnowledgeGraphService(config, storeManager, milvusClientV2, lightRagBridge);
+        KnowledgeGraphController kgController = new KnowledgeGraphController(kgService);
 
         if (config.isMultiRecallEnabled()) {
-            // 召回策略注册表（复用上面创建的 milvusClientV2）
             Map<String, RecallStrategy> registry = new LinkedHashMap<>();
             registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
             registry.put("sparse", new SparseRecallStrategy(
                     milvusClientV2, config.getMilvusCollectionName()));
-
-            // LightRAG 知识图谱（JPype 桥接，复用 LLM 配置）
-            LightRagBridge lightRagBridge = new LightRagBridge(
-                    config.getLightRagPythonPath(), config.getLightRagWorkingDir(),
-                    config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode(),
-                    config.getApiKey(), config.getBaseUrl(), config.getModelName());
-            lightRagBridge.init();
-            kgService = new KnowledgeGraphService(config, storeManager, milvusClientV2, lightRagBridge);
             registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
                     config.getLightRagQueryMode()));
-
             multiRecallRouter = new MultiRecallRouter(config, registry);
-            kgController = new KnowledgeGraphController(kgService);
         }
 
         this.multiRecallRouter = multiRecallRouter;
@@ -184,12 +180,10 @@ public class WebApplication {
         app.get("/api/documents", documentController::handleListDocuments);
         app.post("/api/browse", documentController::handleBrowse);
 
-        // 知识图谱路由（仅多路召回启用时注册）
-        if (kgController != null) {
-            app.post("/api/kg/build", kgController::handleBuildForDirectory);
-            app.post("/api/kg/build/{docId}", kgController::handleBuildForDocument);
-            app.get("/api/kg/status", kgController::handleGetStatus);
-        }
+        // 知识图谱路由
+        app.post("/api/kg/build", kgController::handleBuildForDirectory);
+        app.post("/api/kg/build/{docId}", kgController::handleBuildForDocument);
+        app.get("/api/kg/status", kgController::handleGetStatus);
 
         app.exception(Exception.class, (e, ctx) -> {
             org.slf4j.LoggerFactory.getLogger(WebApplication.class)

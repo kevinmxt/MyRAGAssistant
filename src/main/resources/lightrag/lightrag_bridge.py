@@ -13,10 +13,16 @@ import os
 import sys
 
 # ---- protocol channel setup ----
-# Keep fd 1 (stdout) exclusively for JSON protocol; redirect everything printed
-# by LightRAG / libraries to stderr so the protocol channel stays parseable.
-_protocol = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
+# 1. Preserve a copy of the original stdout fd for JSON protocol output.
+# 2. Redirect fd 1 to /dev/null at OS level — prevents C extensions
+#    (PyTorch, HuggingFace, ONNX, etc.) from writing to the Java protocol pipe.
+# 3. Redirect Python-level sys.stdout to stderr as a fallback.
+_protocol_fd = os.dup(1)
+_devnull = os.open(os.devnull, os.O_WRONLY)
+os.dup2(_devnull, 1)
+os.close(_devnull)
 sys.stdout = sys.stderr
+_protocol = os.fdopen(_protocol_fd, "w", encoding="utf-8", buffering=1)
 
 
 def emit(obj):

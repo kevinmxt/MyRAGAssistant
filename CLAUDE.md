@@ -32,7 +32,9 @@
 
 - `me.maxt.rag.web.App` — 应用入口（5 行胶水代码）
 - `me.maxt.rag.web.WebApplication` — 启动组装工厂（依赖创建 + 路由注册）
-- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 8 个接口
+- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 9 个接口
+- `me.maxt.rag.web.service.environment.EnvironmentChecker` — 环境检测编排器（并行检测、SSE 广播、安装管理）
+- `me.maxt.rag.web.controller.EnvironmentController` — 环境管理 REST 端点
 - `me.maxt.rag.web.service.chunking.ChunkingPipeline` — 自适应文档切分管线入口
 - `me.maxt.rag.web.service.vector.QueryEnhancementRouter` — 查询增强路由器（改写/HyDE/RRF）
 - `me.maxt.rag.web.service.vector.ContextualEnricher` — 上下文增强器（chunk 前缀）

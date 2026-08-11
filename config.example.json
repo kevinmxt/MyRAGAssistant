@@ -61,5 +61,11 @@
     "formats": ["markdown", "txt", "pdf", "docx", "json"],
     "answerQualityEnabled": true,
     "degradationThreshold": 0.05
+  },
+  "environment": {
+    "enabled": true,
+    "autoInstall": false,
+    "checkTimeoutSeconds": 15,
+    "probeTimeoutSeconds": 5
   }
 }

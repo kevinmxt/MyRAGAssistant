@@ -13,6 +13,7 @@ import io.milvus.v2.client.MilvusClientV2;
 import me.maxt.rag.web.config.AppConfig;
 import me.maxt.rag.web.controller.ChatController;
 import me.maxt.rag.web.controller.DocumentController;
+import me.maxt.rag.web.controller.EnvironmentController;
 import me.maxt.rag.web.controller.KnowledgeGraphController;
 import me.maxt.rag.web.service.DocumentService;
 import me.maxt.rag.web.service.EmbeddingStoreManager;
@@ -38,17 +39,24 @@ import me.maxt.rag.web.service.vector.recall.RecallStrategy;
 import me.maxt.rag.web.service.vector.recall.SparseRecallStrategy;
 import me.maxt.rag.web.service.vector.rerank.CrossEncoderReranker;
 import me.maxt.rag.web.service.vector.rerank.Reranker;
+import me.maxt.rag.web.service.environment.*;
 
 import java.io.File;
+import java.io.PrintWriter;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * Web 应用组装工厂，负责创建共享依赖、实例化 service 和 controller、配置路由。
  * App.main() 只保留薄胶水层。
  */
 public class WebApplication {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(WebApplication.class);
 
     private final AppConfig config;
     private final EmbeddingModel embeddingModel;
@@ -66,8 +74,25 @@ public class WebApplication {
 
     private final Reranker reranker;
 
+    // 环境检测与 SSE 连接管理
+    private final EnvironmentChecker environmentChecker;
+    private final EnvironmentController environmentController;
+    private final Map<String, PrintWriter> sseClients = new ConcurrentHashMap<>();
+
     public WebApplication(AppConfig config) {
         this.config = config;
+
+        // 环境检测（非阻塞后台启动，SSE 推送结果）
+        List<DependencyChecker> checkers = List.of(
+                new PythonChecker(config, config.getLightRagPythonPath()),
+                new PipPackageChecker(config, config.getLightRagPythonPath()),
+                new MilvusChecker(config, config.getMilvusHost(), config.getMilvusPort()),
+                new PandocChecker(config),
+                new TesseractChecker(config),
+                new ModelFileChecker(config, config.getRerankModelPath(), config.getLightRagEmbeddingModelPath()));
+        this.environmentChecker = new EnvironmentChecker(config, checkers);
+        this.environmentController = new EnvironmentController(environmentChecker);
+        environmentChecker.run();
 
         // 共享依赖
         this.embeddingModel = new BgeSmallZhV15QuantizedEmbeddingModel();
@@ -92,12 +117,18 @@ public class WebApplication {
         this.storeManager = new EmbeddingStoreManager(milvusStore);
 
         // Milvus v2 原生客户端（用于索引重建、稀疏检索、知识图谱等）
-        MilvusClientV2 milvusClientV2 = new MilvusClientV2(ConnectConfig.builder()
-                .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
-                .build());
-
-        // 从 Milvus 重建文档索引（重启后恢复）
-        storeManager.rebuildIndexFromMilvus(milvusClientV2, config.getMilvusCollectionName());
+        // 连接失败不崩溃，降级处理
+        MilvusClientV2 milvusClientV2;
+        try {
+            milvusClientV2 = new MilvusClientV2(ConnectConfig.builder()
+                    .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
+                    .build());
+            // 从 Milvus 重建文档索引（重启后恢复）
+            storeManager.rebuildIndexFromMilvus(milvusClientV2, config.getMilvusCollectionName());
+        } catch (Exception e) {
+            log.warn("Milvus 连接失败，底层功能将降级: {}", e.getMessage());
+            milvusClientV2 = null;
+        }
 
         // Chunking 管线
         MarkdownConverter markdownConverter = new MarkdownConverter();
@@ -120,20 +151,27 @@ public class WebApplication {
         // 多路召回组件组装（条件启用）
         MultiRecallRouter multiRecallRouter = null;
 
-        // 知识图谱 — 独立于多路召回，始终初始化（失败降级不影响主流程）
+        // 知识图谱 — 独立于多路召回，始终初始化（非阻塞，失败降级不影响主流程）
         LightRagBridge lightRagBridge = new LightRagBridge(
                 config.getLightRagPythonPath(), config.getLightRagWorkingDir(),
                 config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode(),
                 config.getApiKey(), config.getBaseUrl(), config.getModelName());
-        lightRagBridge.init();
+        Thread lightragInit = new Thread(() -> {
+            lightRagBridge.init();
+            log.info("LightRAG 后台初始化完成: initialized={}", lightRagBridge.isInitialized());
+        }, "lightrag-init");
+        lightragInit.setDaemon(true);
+        lightragInit.start();
         KnowledgeGraphService kgService = new KnowledgeGraphService(config, storeManager, milvusClientV2, lightRagBridge);
         KnowledgeGraphController kgController = new KnowledgeGraphController(kgService);
 
         if (config.isMultiRecallEnabled()) {
             Map<String, RecallStrategy> registry = new LinkedHashMap<>();
             registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
-            registry.put("sparse", new SparseRecallStrategy(
-                    milvusClientV2, config.getMilvusCollectionName()));
+            if (milvusClientV2 != null) {
+                registry.put("sparse", new SparseRecallStrategy(
+                        milvusClientV2, config.getMilvusCollectionName()));
+            }
             registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
                     config.getLightRagQueryMode()));
             multiRecallRouter = new MultiRecallRouter(config, registry);
@@ -174,7 +212,57 @@ public class WebApplication {
             });
         });
 
-        app.get("/api/health", ctx -> ctx.json(Map.of("status", "ok")));
+        app.get("/api/health", ctx -> {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("status", "ok");
+            body.put("environment", environmentChecker.getSummary());
+            ctx.json(body);
+        });
+
+        // 环境管理路由
+        app.get("/api/env/status", environmentController::handleStatus);
+        app.post("/api/env/check", environmentController::handleCheck);
+        app.post("/api/env/install", environmentController::handleInstall);
+
+        // SSE 端点 — 推送环境状态变更和安装进度
+        app.get("/api/env/stream", ctx -> {
+            ctx.contentType("text/event-stream; charset=utf-8");
+            ctx.header("Cache-Control", "no-cache");
+            ctx.header("Connection", "keep-alive");
+
+            PrintWriter writer = new PrintWriter(ctx.res().getOutputStream(), true);
+            String clientId = java.util.UUID.randomUUID().toString();
+            sseClients.put(clientId, writer);
+
+            @SuppressWarnings("unchecked")
+            Consumer<String>[] holder = new Consumer[1];
+            holder[0] = formatted -> {
+                try {
+                    writer.print(formatted);
+                    writer.flush();
+                } catch (Exception e) {
+                    sseClients.remove(clientId);
+                    environmentChecker.removeSseListener(holder[0]);
+                }
+            };
+            environmentChecker.addSseListener(holder[0]);
+
+            // 心跳保持连接
+            try {
+                while (!writer.checkError()) {
+                    writer.print(": heartbeat\n\n");
+                    writer.flush();
+                    Thread.sleep(15000);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                sseClients.remove(clientId);
+                environmentChecker.removeSseListener(holder[0]);
+                writer.close();
+            }
+        });
+
         app.post("/api/chat", chatController::handleChat);
         app.post("/api/ingest", documentController::handleIngest);
         app.get("/api/documents", documentController::handleListDocuments);
@@ -207,4 +295,5 @@ public class WebApplication {
     public RAGService getRagService() { return ragService; }
     public DocumentService getDocumentService() { return documentService; }
     public Reranker getReranker() { return reranker; }
+    public EnvironmentChecker getEnvironmentChecker() { return environmentChecker; }
 }

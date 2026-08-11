@@ -685,3 +685,290 @@ header h1 {
     color: #059669;
     font-weight: 500;
 }
+
+/* ==================== Header & Tab Bar ==================== */
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.tab-bar {
+    display: flex;
+    gap: 4px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.tab-btn {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn.active {
+    background: white;
+    color: var(--primary);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.tab-btn:hover:not(.active) {
+    color: var(--text);
+}
+
+/* ==================== Tab Panel ==================== */
+
+.tab-panel {
+    display: none;
+    flex: 1;
+    overflow: hidden;
+}
+
+.tab-panel.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ==================== Environment Panel ==================== */
+
+.env-container {
+    padding: 24px;
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+    overflow-y: auto;
+}
+
+.env-summary {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.env-summary-text {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.env-count {
+    font-weight: 600;
+    font-size: 14px;
+    padding: 2px 10px;
+    border-radius: 12px;
+}
+
+.env-count.ok {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.env-count.missing {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.env-count.error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.env-count.skipped {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.env-duration {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-left: auto;
+}
+
+.env-empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+.env-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.env-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    transition: border-color 0.2s;
+}
+
+.env-card.checking {
+    opacity: 0.6;
+}
+
+.env-card.ok {
+    border-left: 3px solid var(--success);
+}
+
+.env-card.missing {
+    border-left: 3px solid var(--error);
+}
+
+.env-card.error {
+    border-left: 3px solid var(--error);
+    background: #fff5f5;
+}
+
+.env-card.skipped {
+    border-left: 3px solid var(--warning);
+}
+
+.env-card.installing {
+    border-left: 3px solid var(--primary);
+    animation: pulse-border 1.5s infinite;
+}
+
+@keyframes pulse-border {
+    0%, 100% { border-color: var(--primary); }
+    50% { border-color: #818cf8; }
+}
+
+.env-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.env-icon {
+    font-size: 18px;
+    width: 24px;
+    text-align: center;
+}
+
+.env-name {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.env-version {
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: #f1f5f9;
+    padding: 1px 8px;
+    border-radius: 10px;
+}
+
+.env-category {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-left: auto;
+    text-transform: lowercase;
+}
+
+.env-card-body {
+    margin-top: 8px;
+    padding-left: 32px;
+}
+
+.env-message {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.env-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.env-btn {
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+}
+
+.env-btn-primary {
+    background: var(--primary);
+    color: white;
+}
+
+.env-btn-primary:hover {
+    background: var(--primary-hover);
+}
+
+.env-btn-outline {
+    background: white;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+
+.env-btn-outline:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* Install guide */
+.env-install-guide {
+    margin-top: 10px;
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+}
+
+.install-guide-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+
+.env-install-guide ul {
+    list-style: none;
+    padding: 0;
+}
+
+.env-install-guide li {
+    padding: 4px 0;
+}
+
+.env-install-guide code {
+    background: #e2e8f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    word-break: break-all;
+}
+
+/* Install log */
+.env-install-log {
+    margin-top: 10px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.6;
+}

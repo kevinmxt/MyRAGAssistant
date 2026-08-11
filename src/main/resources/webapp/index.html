@@ -12,9 +12,17 @@
             <span class="logo">📚</span>
             <h1>本地知识库问答系统</h1>
         </div>
-        <span class="version">v1.0</span>
+        <div class="header-right">
+            <nav class="tab-bar">
+                <button class="tab-btn active" data-tab="chat">智能问答</button>
+                <button class="tab-btn" data-tab="env">环境管理</button>
+            </nav>
+            <span class="version">v1.0</span>
+        </div>
     </header>
 
+    <!-- 智能问答 Tab -->
+    <div class="tab-panel active" id="chatPanel">
     <div class="main-container">
         <!-- Left Sidebar -->
         <aside class="sidebar">
@@ -71,6 +79,18 @@
             </div>
         </main>
     </div>
+    </div> <!-- end chatPanel -->
+
+    <!-- 环境管理 Tab -->
+    <div class="tab-panel" id="envPanel" style="display:none;">
+        <div class="env-container">
+            <div class="env-summary" id="envSummary">
+                <span class="env-summary-text">环境检测中...</span>
+            </div>
+            <div class="env-cards" id="envCards">
+            </div>
+        </div>
+    </div>
 
     <!-- Directory Browser Modal -->
     <div class="modal-overlay" id="browseModal" style="display: none;">
@@ -103,5 +123,6 @@
     </div>
 
     <script src="/app.js"></script>
+    <script src="/env.js"></script>
 </body>
 </html>

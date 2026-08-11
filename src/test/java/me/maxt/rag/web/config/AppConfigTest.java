@@ -45,6 +45,7 @@ class AppConfigTest {
         assertThat(config).isInstanceOf(MilvusConfig.class);
         assertThat(config).isInstanceOf(RecallConfig.class);
         assertThat(config).isInstanceOf(RerankConfig.class);
+        assertThat(config).isInstanceOf(EnvCheckConfig.class);
     }
 
     @Test
@@ -100,6 +101,15 @@ class AppConfigTest {
         assertThat(config.getMilvusPort()).isEqualTo(19530);
         assertThat(config.getMilvusCollectionName()).isEqualTo("rag_knowledge_base");
         assertThat(config.getMilvusDimension()).isEqualTo(512);
+    }
+
+    @Test
+    void shouldHaveDefaultEnvCheckConfig() {
+        AppConfig config = new AppConfig();
+        assertThat(config.isEnvCheckEnabled()).isTrue();
+        assertThat(config.isAutoInstallEnabled()).isFalse();
+        assertThat(config.getEnvCheckTimeoutSeconds()).isEqualTo(15);
+        assertThat(config.getProbeTimeoutSeconds()).isEqualTo(5);
     }
 
     @Test

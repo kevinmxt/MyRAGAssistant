@@ -25,7 +25,7 @@ import java.util.Map;
  * @author maxt
  * @since 1.0
  */
-public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig, RerankConfig, EvaluationConfig {
+public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig, RerankConfig, EvaluationConfig, EnvCheckConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
@@ -191,6 +191,20 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** 退化判定阈值（如 0.05 表示 5%），可通过环境变量 RAG_EVALUATION_DEGRADATION_THRESHOLD 覆盖 */
     private double degradationThreshold;
 
+    // ========== 环境检测参数 ==========
+
+    /** 是否启用环境检测，可通过环境变量 RAG_ENV_CHECK_ENABLED 覆盖 */
+    private boolean envCheckEnabled;
+
+    /** 缺失依赖是否自动安装，可通过环境变量 RAG_ENV_AUTO_INSTALL 覆盖 */
+    private boolean autoInstallEnabled;
+
+    /** 全部检测的总超时秒数，可通过环境变量 RAG_ENV_CHECK_TIMEOUT 覆盖 */
+    private int envCheckTimeoutSeconds;
+
+    /** 单个子进程探测超时秒数，可通过环境变量 RAG_ENV_PROBE_TIMEOUT 覆盖 */
+    private int probeTimeoutSeconds;
+
     /**
      * 使用默认值构造配置实例。
      */
@@ -243,6 +257,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.evaluationFormats = Arrays.asList("markdown", "txt", "pdf", "docx", "json");
         this.answerQualityEnabled = true;
         this.degradationThreshold = 0.05;
+        this.envCheckEnabled = true;
+        this.autoInstallEnabled = false;
+        this.envCheckTimeoutSeconds = 15;
+        this.probeTimeoutSeconds = 5;
     }
 
     /**
@@ -394,6 +412,14 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             config.answerQualityEnabled = getBoolean(evaluation, "answerQualityEnabled", config.answerQualityEnabled);
             config.degradationThreshold = getDouble(evaluation, "degradationThreshold", config.degradationThreshold);
         }
+
+        Map<String, Object> environment = (Map<String, Object>) fileConfig.get("environment");
+        if (environment != null) {
+            config.envCheckEnabled = getBoolean(environment, "enabled", config.envCheckEnabled);
+            config.autoInstallEnabled = getBoolean(environment, "autoInstall", config.autoInstallEnabled);
+            config.envCheckTimeoutSeconds = getInt(environment, "checkTimeoutSeconds", config.envCheckTimeoutSeconds);
+            config.probeTimeoutSeconds = getInt(environment, "probeTimeoutSeconds", config.probeTimeoutSeconds);
+        }
     }
 
     /**
@@ -454,6 +480,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         }
         config.answerQualityEnabled = envBool("RAG_EVALUATION_ANSWER_QUALITY_ENABLED", config.answerQualityEnabled);
         config.degradationThreshold = envDouble("RAG_EVALUATION_DEGRADATION_THRESHOLD", config.degradationThreshold);
+        config.envCheckEnabled = envBool("RAG_ENV_CHECK_ENABLED", config.envCheckEnabled);
+        config.autoInstallEnabled = envBool("RAG_ENV_AUTO_INSTALL", config.autoInstallEnabled);
+        config.envCheckTimeoutSeconds = envInt("RAG_ENV_CHECK_TIMEOUT", config.envCheckTimeoutSeconds);
+        config.probeTimeoutSeconds = envInt("RAG_ENV_PROBE_TIMEOUT", config.probeTimeoutSeconds);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -600,4 +630,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     @Override public boolean isAnswerQualityEnabled() { return answerQualityEnabled; }
     /** @return 退化判定阈值（如 0.05 表示 5%） */
     @Override public double getDegradationThreshold() { return degradationThreshold; }
+    @Override public boolean isEnvCheckEnabled() { return envCheckEnabled; }
+    @Override public boolean isAutoInstallEnabled() { return autoInstallEnabled; }
+    @Override public int getEnvCheckTimeoutSeconds() { return envCheckTimeoutSeconds; }
+    @Override public int getProbeTimeoutSeconds() { return probeTimeoutSeconds; }
 }

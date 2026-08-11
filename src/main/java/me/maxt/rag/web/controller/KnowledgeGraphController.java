@@ -36,7 +36,15 @@ public class KnowledgeGraphController {
         }
         log.info("Building KG for document: {}", docId);
         boolean ok = kgService.buildForDocument(docId.trim());
-        ctx.json(Map.of("success", ok, "status", kgService.getStatus()));
+        Map<String, Object> status = kgService.getStatus();
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("success", ok);
+        resp.put("status", status);
+        if (!ok) {
+            String err = (String) status.getOrDefault("lastError", "");
+            resp.put("error", err.isEmpty() ? "构建失败" : err);
+        }
+        ctx.json(resp);
     }
 
     public void handleGetStatus(Context ctx) {

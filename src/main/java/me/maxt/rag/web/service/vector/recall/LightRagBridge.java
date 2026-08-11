@@ -55,6 +55,7 @@ public class LightRagBridge implements AutoCloseable {
     private final Object protocolLock = new Object();
 
     private volatile boolean initialized = false;
+    private volatile String initError = "";
     private Process process;
     private BufferedReader protocolReader;
     private BufferedWriter protocolWriter;
@@ -104,11 +105,18 @@ public class LightRagBridge implements AutoCloseable {
             }
             log.info("LightRagBridge initialized: python={}, workdir={}", interpreter, workingDir);
             initialized = true;
+            initError = "";
         } catch (Exception e) {
-            log.error("Failed to initialize LightRagBridge, graph recall will be unavailable", e);
+            initError = e.getMessage();
+            if (initError == null) initError = e.getClass().getSimpleName();
+            log.error("Failed to initialize LightRagBridge: {}", initError);
             closeQuietly();
         }
     }
+
+    public boolean isInitialized() { return initialized; }
+
+    public String getInitError() { return initError; }
 
     /** 检索：向 Python 子进程发送 query 请求，返回结果字符串列表 */
     public List<String> query(String queryText, String mode) {

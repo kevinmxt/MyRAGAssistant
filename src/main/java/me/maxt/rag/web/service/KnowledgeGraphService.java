@@ -36,6 +36,7 @@ public class KnowledgeGraphService {
     private final LightRagBridge bridge;
     private final AtomicBoolean built = new AtomicBoolean(false);
     private final AtomicReference<String> buildStatus = new AtomicReference<>("idle");
+    private final AtomicReference<String> lastError = new AtomicReference<>("");
     private final Set<String> indexedDocs = ConcurrentHashMap.newKeySet();
 
     public KnowledgeGraphService(RecallConfig config, EmbeddingStoreManager storeManager,
@@ -88,15 +89,18 @@ public class KnowledgeGraphService {
     public boolean buildForDocument(String docId) {
         if (storeManager == null) {
             log.warn("EmbeddingStoreManager not available, cannot build KG for document: {}", docId);
+            lastError.set("storeManager 未初始化");
             return false;
         }
         buildStatus.set("building");
+        lastError.set("");
         try {
             Map<String, EmbeddingStoreManager.DocEntry> docIndex = storeManager.getDocumentIndex();
             EmbeddingStoreManager.DocEntry entry = docIndex.get(docId);
             if (entry == null) {
                 log.warn("Document not found: {}", docId);
                 buildStatus.set("not_found");
+                lastError.set("文档未找到: " + docId);
                 return false;
             }
             Map<String, String> docs = Map.of(docId, "");
@@ -105,6 +109,7 @@ public class KnowledgeGraphService {
                 indexedDocs.add(docId);
                 built.set(true);
                 buildStatus.set("completed");
+                lastError.set("");
             } else {
                 buildStatus.set("failed");
             }
@@ -112,6 +117,7 @@ public class KnowledgeGraphService {
         } catch (Exception e) {
             log.error("KG build failed for document: {}", docId, e);
             buildStatus.set("failed: " + e.getMessage());
+            lastError.set(e.getMessage());
             return false;
         }
     }
@@ -120,6 +126,7 @@ public class KnowledgeGraphService {
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("built", built.get());
         status.put("buildStatus", buildStatus.get());
+        status.put("lastError", lastError.get());
         status.put("indexedDocuments", new ArrayList<>(indexedDocs));
         status.put("workingDir", config.getLightRagWorkingDir());
         return status;
@@ -164,10 +171,17 @@ public class KnowledgeGraphService {
     private boolean runLightRagInsert(Map<String, String> docs) {
         if (bridge == null) {
             log.warn("LightRagBridge not available, cannot build KG");
+            lastError.set("LightRagBridge 未初始化");
+            return false;
+        }
+        if (!bridge.isInitialized()) {
+            log.warn("LightRagBridge not initialized, cannot build KG");
+            lastError.set("LightRagBridge 初始化失败: " + bridge.getInitError());
             return false;
         }
         if (milvusClient == null) {
             log.warn("MilvusClientV2 not available, cannot load document text");
+            lastError.set("MilvusClient 未初始化");
             return false;
         }
         Map<String, String> docsWithText = new LinkedHashMap<>();
@@ -181,9 +195,14 @@ public class KnowledgeGraphService {
         }
         if (docsWithText.isEmpty()) {
             log.warn("No document text loaded from Milvus, KG build aborted");
+            lastError.set("未从 Milvus 加载到文档文本，请确认文档已导入资料库");
             return false;
         }
-        return bridge.insert(docsWithText);
+        boolean ok = bridge.insert(docsWithText);
+        if (!ok) {
+            lastError.set("LightRAG Python 插入失败，请查看服务器日志");
+        }
+        return ok;
     }
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -203,8 +222,9 @@ public class KnowledgeGraphService {
                     .limit(MAX_CHUNKS_PER_DOC)
                     .build();
             QueryResp resp = milvusClient.query(req);
+            List<QueryResp.QueryResult> results = resp.getQueryResults();
             StringBuilder sb = new StringBuilder();
-            for (QueryResp.QueryResult qr : resp.getQueryResults()) {
+            for (QueryResp.QueryResult qr : results) {
                 Map<String, Object> entity = qr.getEntity();
                 Object metaObj = entity.get("metadata");
                 if (metaObj == null) continue;
@@ -220,7 +240,11 @@ public class KnowledgeGraphService {
                     sb.append(text).append('\n');
                 }
             }
-            return sb.toString().trim();
+            String result = sb.toString().trim();
+            if (result.isEmpty() && !results.isEmpty()) {
+                log.warn("loadDocumentText: file_name={} not matched in {} Milvus results", fileName, results.size());
+            }
+            return result;
         } catch (Exception e) {
             log.warn("Failed to load document text from Milvus for {}: {}", fileName, e.getMessage());
             return null;

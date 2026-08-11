@@ -143,6 +143,7 @@ public class CrossEncoderReranker implements Reranker {
     // {本地文件名, 仓库内路径}
     private static final String[][] MODEL_FILES = {
             {"model.onnx", "onnx/model.onnx"},
+            {"model.onnx_data", "onnx/model.onnx_data"},
             {"tokenizer.json", "tokenizer.json"},
     };
     private static final String MODEL_REPO = "onnx-community/bge-reranker-v2-m3-ONNX";

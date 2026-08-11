@@ -59,6 +59,7 @@ public class LightRagBridge implements AutoCloseable {
     private Process process;
     private BufferedReader protocolReader;
     private BufferedWriter protocolWriter;
+    private final List<String> stderrLines = new ArrayList<>();
 
     public LightRagBridge(String pythonPath, String workingDir,
                           String embeddingModelPath, String queryMode) {
@@ -109,6 +110,10 @@ public class LightRagBridge implements AutoCloseable {
         } catch (Exception e) {
             initError = e.getMessage();
             if (initError == null) initError = e.getClass().getSimpleName();
+            String stderr = getStderrTail();
+            if (!stderr.isEmpty()) {
+                initError = initError + " | stderr: " + stderr;
+            }
             log.error("Failed to initialize LightRagBridge: {}", initError);
             closeQuietly();
         }
@@ -185,14 +190,18 @@ public class LightRagBridge implements AutoCloseable {
         }
     }
 
-    /** 后台线程把子进程 stderr 日志转发到 Java 日志 */
+    /** 后台线程把子进程 stderr 日志转发到 Java 日志，同时收集到缓冲区供错误诊断 */
     private void startLogDrainer() {
         Thread drainer = new Thread(() -> {
             try (BufferedReader err = new BufferedReader(new InputStreamReader(
                     process.getErrorStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = err.readLine()) != null) {
-                    log.debug("[lightrag] {}", line);
+                    log.info("[lightrag] {}", line);
+                    synchronized (stderrLines) {
+                        stderrLines.add(line);
+                        if (stderrLines.size() > 50) stderrLines.remove(0);
+                    }
                 }
             } catch (IOException e) {
                 // 进程退出导致的流关闭，忽略
@@ -200,6 +209,15 @@ public class LightRagBridge implements AutoCloseable {
         }, "lightrag-stderr-drain");
         drainer.setDaemon(true);
         drainer.start();
+    }
+
+    /** 返回收集到的 stderr 尾部（最多 20 行），用于错误诊断 */
+    private String getStderrTail() {
+        synchronized (stderrLines) {
+            if (stderrLines.isEmpty()) return "";
+            int start = Math.max(0, stderrLines.size() - 20);
+            return String.join("\n", stderrLines.subList(start, stderrLines.size()));
+        }
     }
 
     /**

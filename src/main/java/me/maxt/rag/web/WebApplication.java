@@ -105,29 +105,44 @@ public class WebApplication {
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .build();
 
-        // Milvus 向量存储（STRONG 一致性保证写入后立即可查）
-        MilvusEmbeddingStore milvusStore = MilvusEmbeddingStore.builder()
-                .host(config.getMilvusHost())
-                .port(config.getMilvusPort())
-                .collectionName(config.getMilvusCollectionName())
-                .dimension(config.getMilvusDimension())
-                .consistencyLevel(ConsistencyLevelEnum.STRONG)
-                .build();
+        // Milvus 向量存储（连接失败降级到内存存储，不阻塞启动）
+        MilvusEmbeddingStore milvusStore;
+        boolean milvusAvailable;
+        try {
+            milvusStore = MilvusEmbeddingStore.builder()
+                    .host(config.getMilvusHost())
+                    .port(config.getMilvusPort())
+                    .collectionName(config.getMilvusCollectionName())
+                    .dimension(config.getMilvusDimension())
+                    .consistencyLevel(ConsistencyLevelEnum.STRONG)
+                    .build();
+            milvusAvailable = true;
+        } catch (Exception e) {
+            log.warn("Milvus 不可用，降级到内存存储（数据不持久化）: {}", e.getMessage());
+            milvusStore = null;
+            milvusAvailable = false;
+        }
 
-        this.storeManager = new EmbeddingStoreManager(milvusStore);
+        if (!milvusAvailable) {
+            this.storeManager = new EmbeddingStoreManager(new dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<>());
+        } else {
+            this.storeManager = new EmbeddingStoreManager(milvusStore);
+        }
 
         // Milvus v2 原生客户端（用于索引重建、稀疏检索、知识图谱等）
         // 连接失败不崩溃，降级处理
-        MilvusClientV2 milvusClientV2;
-        try {
-            milvusClientV2 = new MilvusClientV2(ConnectConfig.builder()
-                    .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
-                    .build());
-            // 从 Milvus 重建文档索引（重启后恢复）
-            storeManager.rebuildIndexFromMilvus(milvusClientV2, config.getMilvusCollectionName());
-        } catch (Exception e) {
-            log.warn("Milvus 连接失败，底层功能将降级: {}", e.getMessage());
-            milvusClientV2 = null;
+        MilvusClientV2 milvusClientV2 = null;
+        if (milvusAvailable) {
+            try {
+                milvusClientV2 = new MilvusClientV2(ConnectConfig.builder()
+                        .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
+                        .build());
+                // 从 Milvus 重建文档索引（重启后恢复）
+                storeManager.rebuildIndexFromMilvus(milvusClientV2, config.getMilvusCollectionName());
+            } catch (Exception e) {
+                log.warn("Milvus 连接失败，底层功能将降级: {}", e.getMessage());
+                milvusClientV2 = null;
+            }
         }
 
         // Chunking 管线

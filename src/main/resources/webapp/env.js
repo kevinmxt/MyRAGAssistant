@@ -225,9 +225,16 @@ async function installDep(name) {
 async function reconnectMilvus() {
     try {
         const resp = await fetch('/api/env/reconnect-milvus', { method: 'POST' });
-        if (!resp.ok) {
-            const err = await resp.json();
-            alert('重连失败: ' + (err.error || resp.statusText));
+        let data = null;
+        try {
+            data = await resp.json();
+        } catch (e) {
+            // 非 JSON 响应（如代理错误页）
+        }
+        if (resp.ok && data && data.success) {
+            alert('Milvus 重连成功，向量存储已切换');
+        } else {
+            alert('重连失败: ' + ((data && data.error) || resp.statusText));
         }
     } catch (e) {
         alert('请求失败: ' + e.message);

@@ -114,6 +114,30 @@ class EmbeddingStoreManagerTest {
     }
 
     @Test
+    void shouldSwapStoreAndClearIndex() {
+        TextSegment seg = TextSegment.from("content");
+        seg.metadata().put("file_name", "test.pdf");
+        mgr.add(Embedding.from(new float[]{0.5f}), seg);
+        assertThat(mgr.getDocumentIndex()).containsKey("test.pdf");
+
+        InMemoryEmbeddingStore<TextSegment> newStore = new InMemoryEmbeddingStore<>();
+        mgr.swapStore(newStore);
+
+        // 索引清空（旧内存数据不再有效）
+        assertThat(mgr.getDocumentIndex()).isEmpty();
+
+        // 后续写入进入新 store
+        mgr.add(Embedding.from(new float[]{0.5f}), TextSegment.from("after swap"));
+        EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
+                .queryEmbedding(Embedding.from(new float[]{0.5f}))
+                .maxResults(5)
+                .minScore(0.0)
+                .build();
+        assertThat(mgr.search(request).matches()).hasSize(1);
+        assertThat(mgr.search(request).matches().get(0).embedded().text()).isEqualTo("after swap");
+    }
+
+    @Test
     void shouldRebuildIndexFromMilvusOnStartup() {
         // MilvusEmbeddingStore 将 metadata 存为单个 JSON 字段
         Map<String, Object> meta1 = Map.of("file_name", "doc.pdf", "file_type", "PDF",

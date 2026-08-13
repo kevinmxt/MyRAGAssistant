@@ -30,13 +30,22 @@ public class EmbeddingStoreManager {
 
     private static final Logger log = LoggerFactory.getLogger(EmbeddingStoreManager.class);
 
-    private final EmbeddingStore<TextSegment> embeddingStore;
+    private volatile EmbeddingStore<TextSegment> embeddingStore;
 
     /** 文档元数据索引：file_name → DocEntry */
     private final Map<String, DocEntry> docIndex = new ConcurrentHashMap<>();
 
     public EmbeddingStoreManager(EmbeddingStore<TextSegment> store) {
         this.embeddingStore = store;
+    }
+
+    /**
+     * 运行时切换底层存储（如 Milvus 重连成功后从内存存储切回 Milvus）。
+     * 切换后清空文档索引，由调用方决定是否从新存储重建。
+     */
+    public synchronized void swapStore(EmbeddingStore<TextSegment> newStore) {
+        this.embeddingStore = newStore;
+        this.docIndex.clear();
     }
 
     public String add(Embedding embedding, TextSegment textSegment) {

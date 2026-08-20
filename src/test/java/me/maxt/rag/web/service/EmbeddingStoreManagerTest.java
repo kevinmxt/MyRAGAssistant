@@ -37,7 +37,6 @@ class EmbeddingStoreManagerTest {
         String id = mgr.add(Embedding.from(vector), segment);
 
         assertThat(id).isNotEmpty();
-
         EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
                 .queryEmbedding(Embedding.from(new float[]{0.1f, 0.2f, 0.3f}))
                 .maxResults(5)
@@ -168,5 +167,36 @@ class EmbeddingStoreManagerTest {
         assertThat(mgr.getDocumentIndex().get("doc.pdf").segmentCount).isEqualTo(2);
         assertThat(mgr.getDocumentIndex().get("doc.pdf").fileType).isEqualTo("PDF");
         assertThat(mgr.getDocumentIndex().get("notes.txt").segmentCount).isEqualTo(1);
+    }
+
+    @Test
+    void shouldConstructWithSupplier() {
+        InMemoryEmbeddingStore<TextSegment> backing = new InMemoryEmbeddingStore<>();
+        EmbeddingStoreManager supplierMgr = new EmbeddingStoreManager(() -> backing);
+
+        supplierMgr.add(Embedding.from(new float[]{0.5f}), TextSegment.from("via supplier"));
+
+        EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
+                .queryEmbedding(Embedding.from(new float[]{0.5f}))
+                .maxResults(5)
+                .minScore(0.0)
+                .build();
+        assertThat(supplierMgr.search(request).matches()).hasSize(1);
+    }
+
+    @Test
+    void shouldReplaceIndexAtomically() {
+        TextSegment seg = TextSegment.from("content");
+        seg.metadata().put("file_name", "test.pdf");
+        mgr.add(Embedding.from(new float[]{0.5f}), seg);
+        assertThat(mgr.getDocumentIndex()).containsKey("test.pdf");
+
+        Map<String, EmbeddingStoreManager.DocEntry> fresh = Map.of(
+                "doc.pdf", new EmbeddingStoreManager.DocEntry("/data", "PDF", 2));
+        mgr.replaceAllIndex(fresh);
+
+        assertThat(mgr.getDocumentIndex()).hasSize(1);
+        assertThat(mgr.getDocumentIndex().get("doc.pdf").segmentCount).isEqualTo(2);
+        assertThat(mgr.getDocumentIndex()).doesNotContainKey("test.pdf");
     }
 }

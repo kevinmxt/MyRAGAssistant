@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * 向量存储管理器，封装 Milvus（或其他 EmbeddingStore 实现）。
@@ -30,26 +31,38 @@ public class EmbeddingStoreManager {
 
     private static final Logger log = LoggerFactory.getLogger(EmbeddingStoreManager.class);
 
-    private volatile EmbeddingStore<TextSegment> embeddingStore;
+    /** store 供应商：每次操作解析当前 store（volatile——旧 swapStore 路径仍会重赋值，Task 5 后仅构造时赋值） */
+    private volatile Supplier<EmbeddingStore<TextSegment>> storeSupplier;
 
     /** 文档元数据索引：file_name → DocEntry */
     private final Map<String, DocEntry> docIndex = new ConcurrentHashMap<>();
 
+    /** 通过 store 供应商构造：每次操作解析当前 store（会话切换由供应商方控制）。 */
+    public EmbeddingStoreManager(Supplier<EmbeddingStore<TextSegment>> storeSupplier) {
+        this.storeSupplier = storeSupplier;
+    }
+
+    /** 静态 store 便捷构造器（暂留 shim，Task 5 删除）。 */
     public EmbeddingStoreManager(EmbeddingStore<TextSegment> store) {
-        this.embeddingStore = store;
+        this(() -> store);
     }
 
     /**
-     * 运行时切换底层存储（如 Milvus 重连成功后从内存存储切回 Milvus）。
-     * 切换后清空文档索引，由调用方决定是否从新存储重建。
+     * 运行时切换底层存储（暂留 shim，Task 5 删除——新路径由 MilvusSession 原子切换承担）。
      */
     public synchronized void swapStore(EmbeddingStore<TextSegment> newStore) {
-        this.embeddingStore = newStore;
+        this.storeSupplier = () -> newStore;
         this.docIndex.clear();
     }
 
+    /** 整体替换文档索引——会话原子切换的第二半（与换 store 同步发生）。 */
+    public void replaceAllIndex(Map<String, DocEntry> newIndex) {
+        docIndex.clear();
+        docIndex.putAll(newIndex);
+    }
+
     public String add(Embedding embedding, TextSegment textSegment) {
-        String id = embeddingStore.add(embedding, textSegment);
+        String id = storeSupplier.get().add(embedding, textSegment);
         indexDoc(textSegment);
         return id;
     }
@@ -59,7 +72,7 @@ public class EmbeddingStoreManager {
         for (int i = 0; i < embeddings.size(); i++) {
             ids.add(UUID.randomUUID().toString());
         }
-        embeddingStore.addAll(ids, embeddings, textSegments);
+        storeSupplier.get().addAll(ids, embeddings, textSegments);
         for (TextSegment seg : textSegments) {
             indexDoc(seg);
         }
@@ -81,7 +94,7 @@ public class EmbeddingStoreManager {
     }
 
     public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
-        return embeddingStore.search(request);
+        return storeSupplier.get().search(request);
     }
 
     public dev.langchain4j.rag.content.retriever.ContentRetriever createContentRetriever(
@@ -89,7 +102,7 @@ public class EmbeddingStoreManager {
             int maxResults,
             double minScore) {
         return dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever.builder()
-                .embeddingStore(embeddingStore)
+                .embeddingStore(storeSupplier.get())
                 .embeddingModel(embeddingModel)
                 .maxResults(maxResults)
                 .minScore(minScore)

@@ -5,9 +5,6 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
-import io.milvus.v2.client.MilvusClientV2;
-import io.milvus.v2.service.vector.request.QueryReq;
-import io.milvus.v2.service.vector.response.QueryResp;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -15,9 +12,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class EmbeddingStoreManagerTest {
 
@@ -27,7 +21,7 @@ class EmbeddingStoreManagerTest {
     @BeforeEach
     void setUp() {
         memoryStore = new InMemoryEmbeddingStore<>();
-        mgr = new EmbeddingStoreManager(memoryStore);
+        mgr = new EmbeddingStoreManager(() -> memoryStore);
     }
 
     @Test
@@ -110,63 +104,6 @@ class EmbeddingStoreManagerTest {
         mgr.add(Embedding.from(new float[]{0.2f}), seg2);
 
         assertThat(mgr.getDocumentIndex().get("doc.txt").segmentCount).isEqualTo(2);
-    }
-
-    @Test
-    void shouldSwapStoreAndClearIndex() {
-        TextSegment seg = TextSegment.from("content");
-        seg.metadata().put("file_name", "test.pdf");
-        mgr.add(Embedding.from(new float[]{0.5f}), seg);
-        assertThat(mgr.getDocumentIndex()).containsKey("test.pdf");
-
-        InMemoryEmbeddingStore<TextSegment> newStore = new InMemoryEmbeddingStore<>();
-        mgr.swapStore(newStore);
-
-        // 索引清空（旧内存数据不再有效）
-        assertThat(mgr.getDocumentIndex()).isEmpty();
-
-        // 后续写入进入新 store
-        mgr.add(Embedding.from(new float[]{0.5f}), TextSegment.from("after swap"));
-        EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
-                .queryEmbedding(Embedding.from(new float[]{0.5f}))
-                .maxResults(5)
-                .minScore(0.0)
-                .build();
-        assertThat(mgr.search(request).matches()).hasSize(1);
-        assertThat(mgr.search(request).matches().get(0).embedded().text()).isEqualTo("after swap");
-    }
-
-    @Test
-    void shouldRebuildIndexFromMilvusOnStartup() {
-        // MilvusEmbeddingStore 将 metadata 存为单个 JSON 字段
-        Map<String, Object> meta1 = Map.of("file_name", "doc.pdf", "file_type", "PDF",
-                "absolute_directory_path", "/data");
-        Map<String, Object> meta2 = Map.of("file_name", "notes.txt", "file_type", "TXT",
-                "absolute_directory_path", "/data");
-
-        QueryResp.QueryResult r1 = QueryResp.QueryResult.builder()
-                .entity(Map.of("metadata", (Object) meta1))
-                .build();
-        QueryResp.QueryResult r2 = QueryResp.QueryResult.builder()
-                .entity(Map.of("metadata", (Object) meta1))
-                .build();
-        QueryResp.QueryResult r3 = QueryResp.QueryResult.builder()
-                .entity(Map.of("metadata", (Object) meta2))
-                .build();
-
-        QueryResp queryResp = QueryResp.builder()
-                .queryResults(List.of(r1, r2, r3))
-                .build();
-
-        MilvusClientV2 mockClient = mock(MilvusClientV2.class);
-        when(mockClient.query(any(QueryReq.class))).thenReturn(queryResp);
-
-        mgr.rebuildIndexFromMilvus(mockClient, "test_collection");
-
-        assertThat(mgr.getDocumentIndex()).hasSize(2);
-        assertThat(mgr.getDocumentIndex().get("doc.pdf").segmentCount).isEqualTo(2);
-        assertThat(mgr.getDocumentIndex().get("doc.pdf").fileType).isEqualTo("PDF");
-        assertThat(mgr.getDocumentIndex().get("notes.txt").segmentCount).isEqualTo(1);
     }
 
     @Test

@@ -42,7 +42,8 @@ class RAGServiceTest {
 
     @BeforeEach
     void setUp() {
-        storeManager = new EmbeddingStoreManager(new InMemoryEmbeddingStore<>());
+        InMemoryEmbeddingStore<TextSegment> store = new InMemoryEmbeddingStore<>();
+        storeManager = new EmbeddingStoreManager(() -> store);
         config = mock(RetrievalConfig.class);
         when(config.getMaxResults()).thenReturn(3);
         when(config.getMinScore()).thenReturn(0.5);

@@ -77,8 +77,9 @@ class EvaluationTest {
         for (String format : formats) {
             // 每个格式使用独立的 InMemoryEmbeddingStore，
             // 避免上一个格式入库的文档残留导致召回结果跨格式累积
-            EmbeddingStoreManager storeManager =
-                    new EmbeddingStoreManager(new InMemoryEmbeddingStore<>());
+            dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<dev.langchain4j.data.segment.TextSegment> store =
+                    new dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<>();
+            EmbeddingStoreManager storeManager = new EmbeddingStoreManager(() -> store);
             RAGService ragService = new RAGService(appConfig, storeManager, embeddingModel, chatModel);
             KnowledgeBaseSeeder seeder = new KnowledgeBaseSeeder(storeManager, embeddingModel, appConfig, null);
 

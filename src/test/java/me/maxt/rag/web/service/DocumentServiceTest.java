@@ -28,7 +28,8 @@ class DocumentServiceTest {
 
     @BeforeEach
     void setUp() {
-        storeManager = new EmbeddingStoreManager(new InMemoryEmbeddingStore<>());
+        InMemoryEmbeddingStore<TextSegment> store = new InMemoryEmbeddingStore<>();
+        storeManager = new EmbeddingStoreManager(() -> store);
         embeddingModel = mock(EmbeddingModel.class);
     }
 

@@ -42,7 +42,7 @@ class EmbeddingStoreManagerMilvusIT {
                 // 集成测试需要确定性的结果，显式使用强一致性
                 .consistencyLevel(ConsistencyLevelEnum.STRONG)
                 .build();
-        mgr = new EmbeddingStoreManager(store);
+        mgr = new EmbeddingStoreManager(() -> store);
     }
 
     @AfterAll

@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * 稀疏向量检索策略，使用 Milvus 原生 BM25 分词器。
@@ -29,18 +30,21 @@ public class SparseRecallStrategy implements RecallStrategy {
 
     private static final String SPARSE_FIELD = "sparse_vector";
 
-    private final MilvusClientV2 milvusClient;
+    private final Supplier<MilvusClientV2> clientSupplier;
     private final String collectionName;
     private final boolean sparseAvailable;
 
-    public SparseRecallStrategy(MilvusClientV2 milvusClient, String collectionName) {
-        this.milvusClient = milvusClient;
+    public SparseRecallStrategy(Supplier<MilvusClientV2> clientSupplier, String collectionName) {
+        this.clientSupplier = clientSupplier;
         this.collectionName = collectionName;
-        this.sparseAvailable = detectSparseField(milvusClient, collectionName);
+        this.sparseAvailable = detectSparseField(clientSupplier.get(), collectionName);
     }
 
-    /** 启动时探测 collection 是否含 sparse_vector 字段 */
+    /** 启动时探测 collection 是否含 sparse_vector 字段（client 为 null 视为不可用） */
     private static boolean detectSparseField(MilvusClientV2 client, String collectionName) {
+        if (client == null) {
+            return false;
+        }
         try {
             DescribeCollectionResp desc = client.describeCollection(
                     DescribeCollectionReq.builder().collectionName(collectionName).build());
@@ -62,7 +66,8 @@ public class SparseRecallStrategy implements RecallStrategy {
 
     @Override
     public List<EmbeddingMatch<TextSegment>> recall(String query, int topK) {
-        if (!sparseAvailable) {
+        MilvusClientV2 client = clientSupplier.get();
+        if (!sparseAvailable || client == null) {
             return List.of();
         }
         try {
@@ -74,7 +79,7 @@ public class SparseRecallStrategy implements RecallStrategy {
                     .outputFields(List.of("text", "file_name", "absolute_directory_path"))
                     .build();
 
-            SearchResp resp = milvusClient.search(req);
+            SearchResp resp = client.search(req);
 
             List<EmbeddingMatch<TextSegment>> results = new ArrayList<>();
             for (List<SearchResp.SearchResult> group : resp.getSearchResults()) {

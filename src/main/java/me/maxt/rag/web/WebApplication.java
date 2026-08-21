@@ -4,12 +4,8 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.bgesmallzhv15q.BgeSmallZhV15QuantizedEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.store.embedding.milvus.MilvusEmbeddingStore;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
-import io.milvus.common.clientenum.ConsistencyLevelEnum;
-import io.milvus.v2.client.ConnectConfig;
-import io.milvus.v2.client.MilvusClientV2;
 import me.maxt.rag.web.config.AppConfig;
 import me.maxt.rag.web.controller.ChatController;
 import me.maxt.rag.web.controller.DocumentController;
@@ -29,8 +25,10 @@ import me.maxt.rag.web.service.chunking.splitter.SemanticSplitter;
 import me.maxt.rag.web.service.chunking.splitter.StructureSplitter;
 import me.maxt.rag.web.service.vector.ContextualEnricher;
 import me.maxt.rag.web.service.vector.HyDEGenerator;
+import me.maxt.rag.web.service.vector.MilvusSession;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import me.maxt.rag.web.service.vector.QueryRewriter;
+import me.maxt.rag.web.service.vector.RealMilvusConnector;
 import me.maxt.rag.web.service.vector.recall.DenseRecallStrategy;
 import me.maxt.rag.web.service.vector.recall.GraphRecallStrategy;
 import me.maxt.rag.web.service.vector.recall.LightRagBridge;
@@ -79,17 +77,20 @@ public class WebApplication {
     private final EnvironmentController environmentController;
     private final Map<String, PrintWriter> sseClients = new ConcurrentHashMap<>();
 
-    // Milvus 原生客户端（重连后更新；null 表示当前不可用）
-    private volatile MilvusClientV2 milvusClientV2;
+    // 向量库会话（连接生命周期、降级/重连、原子切换）
+    private final MilvusSession milvusSession;
 
     public WebApplication(AppConfig config) {
         this.config = config;
+
+        // 向量库会话（构造零 I/O，出生即 DEGRADED；MilvusChecker 委托其探针）
+        this.milvusSession = new MilvusSession(config, new RealMilvusConnector());
 
         // 环境检测（非阻塞后台启动，SSE 推送结果）
         List<DependencyChecker> checkers = List.of(
                 new PythonChecker(config, config.getLightRagPythonPath()),
                 new PipPackageChecker(config, config.getLightRagPythonPath()),
-                new MilvusChecker(config, config.getMilvusHost(), config.getMilvusPort()),
+                new MilvusChecker(milvusSession),
                 new PandocChecker(config),
                 new TesseractChecker(config),
                 new ModelFileChecker(config, config.getRerankModelPath(), config.getLightRagEmbeddingModelPath()));
@@ -108,33 +109,12 @@ public class WebApplication {
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .build();
 
-        // Milvus 向量存储（连接失败降级到内存存储，不阻塞启动）
-        MilvusEmbeddingStore milvusStore;
-        try {
-            milvusStore = buildMilvusStore();
-        } catch (Exception e) {
-            log.warn("Milvus 不可用，降级到内存存储（数据不持久化）: {}", e.getMessage());
-            milvusStore = null;
+        // 初始连接：探针快速失败，降级不阻塞启动
+        String milvusError = milvusSession.connect();
+        if (milvusError != null) {
+            log.warn("Milvus 不可用，降级到内存存储（数据不持久化）: {}", milvusError);
         }
-
-        if (milvusStore == null) {
-            this.storeManager = new EmbeddingStoreManager(new dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<>());
-        } else {
-            this.storeManager = new EmbeddingStoreManager(milvusStore);
-        }
-
-        // Milvus v2 原生客户端（用于索引重建、稀疏检索、知识图谱等）
-        // 连接失败不崩溃，降级处理
-        if (milvusStore != null) {
-            try {
-                this.milvusClientV2 = buildMilvusClient();
-                // 从 Milvus 重建文档索引（重启后恢复）
-                storeManager.rebuildIndexFromMilvus(this.milvusClientV2, config.getMilvusCollectionName());
-            } catch (Exception e) {
-                log.warn("Milvus 连接失败，底层功能将降级: {}", e.getMessage());
-                this.milvusClientV2 = null;
-            }
-        }
+        this.storeManager = milvusSession.storeManager();
 
         // Chunking 管线
         MarkdownConverter markdownConverter = new MarkdownConverter();
@@ -168,15 +148,16 @@ public class WebApplication {
         }, "lightrag-init");
         lightragInit.setDaemon(true);
         lightragInit.start();
-        KnowledgeGraphService kgService = new KnowledgeGraphService(config, storeManager, milvusClientV2, lightRagBridge);
+        KnowledgeGraphService kgService = new KnowledgeGraphService(
+                config, storeManager, milvusSession::nativeClient, lightRagBridge);
         KnowledgeGraphController kgController = new KnowledgeGraphController(kgService);
 
         if (config.isMultiRecallEnabled()) {
             Map<String, RecallStrategy> registry = new LinkedHashMap<>();
             registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
-            if (milvusClientV2 != null) {
+            if (milvusSession.nativeClient() != null) {
                 registry.put("sparse", new SparseRecallStrategy(
-                        milvusClientV2, config.getMilvusCollectionName()));
+                        milvusSession::nativeClient, config.getMilvusCollectionName()));
             }
             registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
                     config.getLightRagQueryMode()));
@@ -230,9 +211,12 @@ public class WebApplication {
         app.post("/api/env/check", environmentController::handleCheck);
         app.post("/api/env/install", environmentController::handleInstall);
         app.post("/api/env/reconnect-milvus", ctx -> {
-            String error = reconnectMilvus();
+            String error = milvusSession.connect();
             if (error == null) {
                 ctx.json(Map.of("success", true, "message", "已切换到 Milvus"));
+                Thread t = new Thread(environmentChecker::checkAll, "env-check-after-reconnect");
+                t.setDaemon(true);
+                t.start();
             } else {
                 ctx.status(503).json(Map.of("success", false, "error", error));
             }
@@ -294,53 +278,6 @@ public class WebApplication {
         });
 
         return app;
-    }
-
-    private MilvusEmbeddingStore buildMilvusStore() {
-        return MilvusEmbeddingStore.builder()
-                .host(config.getMilvusHost())
-                .port(config.getMilvusPort())
-                .collectionName(config.getMilvusCollectionName())
-                .dimension(config.getMilvusDimension())
-                .consistencyLevel(ConsistencyLevelEnum.STRONG)
-                .build();
-    }
-
-    private MilvusClientV2 buildMilvusClient() {
-        return new MilvusClientV2(ConnectConfig.builder()
-                .uri("http://" + config.getMilvusHost() + ":" + config.getMilvusPort())
-                .build());
-    }
-
-    /**
-     * 尝试重连 Milvus：先用 TCP 探针快速确认进程可达，再把底层存储从内存切换到 Milvus 并重建索引。
-     * @return null 表示成功；否则返回错误描述
-     */
-    public synchronized String reconnectMilvus() {
-        // TCP 探针快速确认可达性（与 MilvusChecker 一致的检测方式，2 秒超时）
-        try (java.net.Socket socket = new java.net.Socket()) {
-            socket.connect(new java.net.InetSocketAddress(config.getMilvusHost(), config.getMilvusPort()), 2000);
-        } catch (Exception e) {
-            return "Milvus 不可达 (" + config.getMilvusHost() + ":" + config.getMilvusPort() + ") → 请先 docker compose up -d";
-        }
-
-        try {
-            MilvusEmbeddingStore milvusStore = buildMilvusStore();
-            MilvusClientV2 client = buildMilvusClient();
-            storeManager.swapStore(milvusStore);
-            this.milvusClientV2 = client;
-            storeManager.rebuildIndexFromMilvus(client, config.getMilvusCollectionName());
-            log.info("Milvus 重连成功，向量存储已切换到 Milvus ({}:{})",
-                    config.getMilvusHost(), config.getMilvusPort());
-            // 触发环境重检（SSE 广播更新前端状态）
-            Thread t = new Thread(environmentChecker::checkAll, "env-check-after-reconnect");
-            t.setDaemon(true);
-            t.start();
-            return null;
-        } catch (Exception e) {
-            log.warn("Milvus 存储切换失败: {}", e.getMessage());
-            return "Milvus 可达但存储切换失败: " + e.getMessage();
-        }
     }
 
     /** 启动后自动摄入默认文档目录（如目录存在）。 */

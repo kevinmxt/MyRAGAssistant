@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -32,7 +33,7 @@ public class KnowledgeGraphService {
 
     private final RecallConfig config;
     private final EmbeddingStoreManager storeManager;
-    private final MilvusClientV2 milvusClient;
+    private final Supplier<MilvusClientV2> milvusClientSupplier;
     private final LightRagBridge bridge;
     private final AtomicBoolean built = new AtomicBoolean(false);
     private final AtomicReference<String> buildStatus = new AtomicReference<>("idle");
@@ -40,10 +41,10 @@ public class KnowledgeGraphService {
     private final Set<String> indexedDocs = ConcurrentHashMap.newKeySet();
 
     public KnowledgeGraphService(RecallConfig config, EmbeddingStoreManager storeManager,
-                                 MilvusClientV2 milvusClient, LightRagBridge bridge) {
+                                 Supplier<MilvusClientV2> milvusClientSupplier, LightRagBridge bridge) {
         this.config = config;
         this.storeManager = storeManager;
-        this.milvusClient = milvusClient;
+        this.milvusClientSupplier = milvusClientSupplier;
         this.bridge = bridge;
     }
 
@@ -179,6 +180,7 @@ public class KnowledgeGraphService {
             lastError.set("LightRagBridge 初始化失败: " + bridge.getInitError());
             return false;
         }
+        MilvusClientV2 milvusClient = milvusClientSupplier != null ? milvusClientSupplier.get() : null;
         if (milvusClient == null) {
             log.warn("MilvusClientV2 not available, cannot load document text");
             lastError.set("MilvusClient 未初始化");
@@ -186,7 +188,7 @@ public class KnowledgeGraphService {
         }
         Map<String, String> docsWithText = new LinkedHashMap<>();
         for (String fileName : docs.keySet()) {
-            String text = loadDocumentText(fileName);
+            String text = loadDocumentText(milvusClient, fileName);
             if (text == null || text.isBlank()) {
                 log.warn("No text found in Milvus for document {}, skipping", fileName);
                 continue;
@@ -213,7 +215,7 @@ public class KnowledgeGraphService {
      * 因此查询全量 metadata+text 后在客户端按 file_name 匹配。
      */
     @SuppressWarnings("unchecked")
-    private String loadDocumentText(String fileName) {
+    private String loadDocumentText(MilvusClientV2 client, String fileName) {
         try {
             QueryReq req = QueryReq.builder()
                     .collectionName(config.getMilvusCollectionName())
@@ -221,7 +223,7 @@ public class KnowledgeGraphService {
                     .outputFields(List.of("metadata", "text"))
                     .limit(MAX_CHUNKS_PER_DOC)
                     .build();
-            QueryResp resp = milvusClient.query(req);
+            QueryResp resp = client.query(req);
             List<QueryResp.QueryResult> results = resp.getQueryResults();
             StringBuilder sb = new StringBuilder();
             for (QueryResp.QueryResult qr : results) {

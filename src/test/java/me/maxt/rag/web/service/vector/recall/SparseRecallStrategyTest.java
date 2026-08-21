@@ -36,7 +36,7 @@ class SparseRecallStrategyTest {
         MilvusClientV2 milvusClient = mock(MilvusClientV2.class);
         when(milvusClient.describeCollection(any(DescribeCollectionReq.class)))
                 .thenReturn(describeResp(true));
-        SparseRecallStrategy strategy = new SparseRecallStrategy(milvusClient, COLLECTION);
+        SparseRecallStrategy strategy = new SparseRecallStrategy(() -> milvusClient, COLLECTION);
         assertThat(strategy.name()).isEqualTo("sparse");
     }
 
@@ -48,7 +48,7 @@ class SparseRecallStrategyTest {
         when(milvusClient.search(any(SearchReq.class)))
                 .thenThrow(new RuntimeException("milvus unavailable"));
 
-        SparseRecallStrategy strategy = new SparseRecallStrategy(milvusClient, COLLECTION);
+        SparseRecallStrategy strategy = new SparseRecallStrategy(() -> milvusClient, COLLECTION);
         List<EmbeddingMatch<TextSegment>> result = strategy.recall("test query", 5);
         assertThat(result).isEmpty();
     }
@@ -59,7 +59,7 @@ class SparseRecallStrategyTest {
         when(milvusClient.describeCollection(any(DescribeCollectionReq.class)))
                 .thenReturn(describeResp(false));
 
-        SparseRecallStrategy strategy = new SparseRecallStrategy(milvusClient, COLLECTION);
+        SparseRecallStrategy strategy = new SparseRecallStrategy(() -> milvusClient, COLLECTION);
         List<EmbeddingMatch<TextSegment>> result = strategy.recall("test query", 5);
         assertThat(result).isEmpty();
     }
@@ -70,7 +70,7 @@ class SparseRecallStrategyTest {
         when(milvusClient.describeCollection(any(DescribeCollectionReq.class)))
                 .thenThrow(new RuntimeException("milvus down"));
 
-        SparseRecallStrategy strategy = new SparseRecallStrategy(milvusClient, COLLECTION);
+        SparseRecallStrategy strategy = new SparseRecallStrategy(() -> milvusClient, COLLECTION);
         List<EmbeddingMatch<TextSegment>> result = strategy.recall("test query", 5);
         assertThat(result).isEmpty();
     }
@@ -91,7 +91,7 @@ class SparseRecallStrategyTest {
                 .build();
         when(milvusClient.search(any(SearchReq.class))).thenReturn(resp);
 
-        SparseRecallStrategy strategy = new SparseRecallStrategy(milvusClient, COLLECTION);
+        SparseRecallStrategy strategy = new SparseRecallStrategy(() -> milvusClient, COLLECTION);
         List<EmbeddingMatch<TextSegment>> result = strategy.recall("test query", 5);
 
         assertThat(result).hasSize(1);

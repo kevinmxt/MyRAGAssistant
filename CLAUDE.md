@@ -5,7 +5,8 @@
 | 命令 | 用途 |
 |------|------|
 | `mvn compile` | 编译 |
-| `mvn test` | 运行 126 个单元测试 |
+| `mvn test -Dtest=MilvusSessionIT` | 运行向量库会话集成测试（需 Docker） |
+| `mvn test` | 运行 138 个单元测试 |
 | `mvn test -P evaluation` | 运行 RAG 效果评估（对比基线） |
 | `mvn test jacoco:report` | 覆盖率报告 → `target/site/jacoco/index.html` |
 | `mvn clean package` | 构建 Fat JAR |
@@ -32,7 +33,8 @@
 
 - `me.maxt.rag.web.App` — 应用入口（5 行胶水代码）
 - `me.maxt.rag.web.WebApplication` — 启动组装工厂（依赖创建 + 路由注册）
-- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 9 个接口
+- `me.maxt.rag.web.config.AppConfig` — 配置实现，同时实现 10 个接口
+- `me.maxt.rag.web.service.vector.MilvusSession` — 向量库会话（连接生命周期、降级/重连、DEGRADED↔CONNECTED 原子切换，见 CONTEXT.md）
 - `me.maxt.rag.web.service.environment.EnvironmentChecker` — 环境检测编排器（并行检测、SSE 广播、安装管理）
 - `me.maxt.rag.web.controller.EnvironmentController` — 环境管理 REST 端点
 - `me.maxt.rag.web.service.chunking.ChunkingPipeline` — 自适应文档切分管线入口

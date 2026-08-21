@@ -4,7 +4,8 @@
 |------|--------|------|
 | 配置 | `config/` | AppConfig 实现 10 个配置接口（Llm / Retrieval / Document / Server / QueryEnhancement / Milvus / Recall / Rerank / Evaluation / EnvCheck） |
 | 文档服务 | `service/DocumentService` | 文档摄入、目录浏览、文件列表 |
-| 向量存储 | `service/EmbeddingStoreManager` | Milvus 向量存储，注入 EmbeddingStore 接口 |
+| 向量库会话 | `service/vector/MilvusSession` | 向量存储连接生命周期：探针/建连/降级/重连，DEGRADED↔CONNECTED 原子切换（换 store + 重建索引）；消费者经 `nativeClient()` 拉取当前客户端，重连后永不过期 |
+| 向量存储门面 | `service/EmbeddingStoreManager` | 经 Supplier 解析当前活跃 store，维护文档元数据索引；存储无关，不含连接逻辑 |
 | RAG 服务 | `service/RAGService` | 检索增强生成编排，支持查询增强路由和多路召回 |
 | 知识图谱服务 | `service/KnowledgeGraphService` | LightRAG KG 构建和管理，从 Milvus 回查文档文本 |
 | 环境检测 | `service/environment/` | 6 个 DependencyChecker + EnvironmentChecker 编排器，SSE 推送状态 |

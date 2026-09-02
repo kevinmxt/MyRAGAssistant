@@ -27,7 +27,13 @@
 | `docs/agents/issue-tracker.md` | GitHub Issues 操作约定 |
 | `docs/agents/triage-labels.md` | 五个 triage 标签映射 |
 | `docs/agents/domain.md` | 领域文档布局（CONTEXT.md + ADR） |
+| `docs/reviews/architecture-review-20260820.html` | 架构评审报告（5 个深化候选，before/after 图） |
+| `docs/reviews/architecture-backlog.md` | 架构深化待办与状态跟踪 |
 | `config.example.json` | 配置文件模板 |
+
+## 报告落盘约定
+
+报告类产物（评审/汇总/分析）一律写入 `docs/reviews/` 并纳入 git，禁止写到 `/tmp`（Windows 下 Write 工具与 shell 对 `/tmp` 的解析不一致，曾致评审报告丢失）；架构评审未做的候选登记进 `docs/reviews/architecture-backlog.md`。
 
 ## 关键入口
 

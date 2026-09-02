@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — MyAIDemo2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose", themeVariables: { fontSize: "13px" } });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .box-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <!-- ============ Header ============ -->
+      <header class="space-y-3">
+        <h1 class="font-serif text-3xl font-bold">Architecture review — MyAIDemo2</h1>
+        <p class="text-sm text-slate-500">2026-08-20 · 基于最近 40 次提交的热点分析 · 环境检测 / 精排下载 / Milvus 容错 / LightRAG 桥接 / 组装根</p>
+        <div class="flex flex-wrap gap-4 text-xs text-slate-600 pt-1">
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-4 h-3 border border-slate-500 bg-white"></span>模块 (module)</span>
+          <span class="inline-flex items-center gap-1.5"><svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#64748b" stroke-width="1.5" class="seam"/></svg>接缝 (seam)</span>
+          <span class="inline-flex items-center gap-1.5"><svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#dc2626" stroke-width="2"/></svg>泄漏 (leak)</span>
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-4 h-3 deep rounded-sm"></span>深模块 (deep module)</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+
+      <!-- ================================================================ -->
+      <!-- 候选 1: MilvusSession -->
+      <!-- ================================================================ -->
+      <article id="c1" class="rounded-xl border border-slate-200 bg-white shadow-sm p-8 space-y-6">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <h2 class="font-serif text-2xl font-bold">1 · 把 Milvus 连接生命周期深化为一个会话模块</h2>
+          <div class="flex gap-2">
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Strong</span>
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">ports &amp; adapters</span>
+          </div>
+        </div>
+
+        <div class="font-mono text-sm text-slate-600 leading-relaxed">
+          WebApplication.java:83-137, 299-344 · MilvusChecker.java:24-55 · EmbeddingStoreManager.java:115-147<br>
+          KnowledgeGraphService.java:35 · SparseRecallStrategy.java（构造时注入）
+        </div>
+
+        <!-- Before / After -->
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+            <p class="box-label text-slate-500 mb-2">Before — 连接知识散布 4 个模块</p>
+            <pre class="mermaid">
+flowchart TB
+  WA["WebApplication 组装根<br/>(TCP 探针 / 降级 / 重连 / 索引重建)"]
+  MC["MilvusChecker<br/>(TCP 探针 + gRPC 版本)"]
+  SM["EmbeddingStoreManager<br/>(rebuildIndexFromMilvus)"]
+  KG["KnowledgeGraphService<br/>持有 MilvusClientV2"]
+  SP["SparseRecallStrategy<br/>持有 MilvusClientV2"]
+  WA -->|"swapStore 只修一路"| SM
+  WA -.->|"重连后引用过期"| KG
+  WA -.->|"重连后引用过期"| SP
+  MC -.->|"同一探针逻辑复制"| WA
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class KG,SP,MC leak
+            </pre>
+            <p class="text-xs text-red-700 mt-2 bg-red-50 border border-red-200 rounded p-2">活 bug：reconnectMilvus() 只更新 WebApplication 自己的 milvusClientV2 字段与 storeManager。KG 与稀疏召回在组装时拿到了旧引用——降级场景下是 null，重连后永远是过期客户端，直到重启。</p>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4 flex flex-col">
+            <p class="box-label text-slate-500 mb-2">After — 一个深会话模块，小接口</p>
+            <div class="flex-1 flex flex-col items-center justify-center gap-3">
+              <div class="flex gap-6 text-center text-slate-600">
+                <div><div class="text-2xl">⬚</div><div class="box-label">消费者</div><div class="text-xs">KG · 稀疏召回<br/>MilvusChecker · 降级策略</div></div>
+              </div>
+              <svg width="220" height="26"><line x1="10" y1="13" x2="210" y2="13" stroke="#64748b" stroke-width="1.5" class="seam"/><text x="110" y="24" text-anchor="middle" font-size="9" fill="#64748b">SEAM · 4 个方法</text></svg>
+              <div class="deep text-white rounded-lg px-6 py-5 w-72 shadow-md">
+                <div class="box-label text-slate-400">深模块</div>
+                <div class="font-semibold text-lg">MilvusSession</div>
+                <div class="text-xs text-slate-300 mt-1 font-mono leading-relaxed">embeddingStore() · nativeClient()<br/>reconnect() · status()</div>
+                <div class="text-[10px] text-slate-400 mt-3 leading-relaxed">内部吸收：TCP 探针 · 连接/重建 · 内存降级 · swap · 索引恢复 · 状态广播</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <p class="font-semibold text-slate-700">问题</p>
+            <p class="text-slate-600 mt-1">Milvus 的探测/连接/降级/重连/索引重建没有自己的模块——组装根、检测器、存储管理器各持一份，泄漏成过期引用 bug。</p>
+          </div>
+          <div>
+            <p class="font-semibold text-slate-700">方案</p>
+            <p class="text-slate-600 mt-1">新建 MilvusSession 深模块持有全部连接状态；消费者不再各自保存客户端，而是每次经接口取用。MilvusChecker 退化为它的一个适配器。</p>
+          </div>
+        </div>
+
+        <ul class="grid md:grid-cols-2 gap-x-6 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+          <li><b>locality</b>：重连类 bug 集中一处修复（近 2 个提交都是它）</li>
+          <li><b>leverage</b>：一个接口，4 个消费点共享</li>
+          <li>EmbeddingStoreManager 恢复存储无关，删掉 Milvus 专有方法</li>
+          <li>降级/重连场景第一次可通过接口测试（现在 0 覆盖）</li>
+          <li>删除测试：删掉此概念，复杂度在 4 处重现 ✓</li>
+        </ul>
+      </article>
+
+      <!-- ================================================================ -->
+      <!-- 候选 2: ModelRepository -->
+      <!-- ================================================================ -->
+      <article id="c2" class="rounded-xl border border-slate-200 bg-white shadow-sm p-8 space-y-6">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <h2 class="font-serif text-2xl font-bold">2 · 把模型下载从精排器里抽成模型分发模块</h2>
+          <div class="flex gap-2">
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Strong</span>
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">local-substitutable</span>
+          </div>
+        </div>
+
+        <div class="font-mono text-sm text-slate-600 leading-relaxed">
+          CrossEncoderReranker.java:143-199（downloadModel · MODEL_FILES · 镜像回退链）<br>
+          ModelFileChecker.java:29-56（只能提示"手动放置"）· WebApplication.java:161-170（LightRAG 初始化线程）
+        </div>
+
+        <!-- Before / After: 质量图 -->
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+            <p class="box-label text-slate-500 mb-3">Before — 推理模块背着 50 行 HTTP 基础设施</p>
+            <div class="flex items-end justify-center gap-8 h-56">
+              <div class="flex flex-col items-center gap-1 w-40">
+                <div class="w-full bg-red-200 border-2 border-red-400 rounded-t" style="height:130px"><p class="box-label text-red-900 pt-2 text-center">HTTP 下载<br/>镜像回退 · 302 · 超时</p></div>
+                <div class="w-full bg-slate-300 border-2 border-slate-400" style="height:60px"><p class="box-label text-slate-700 pt-1 text-center">ONNX 推理</p></div>
+                <p class="box-label text-slate-600 mt-1">CrossEncoderReranker<br/><span class="text-red-600 normal-case">下载 = 实现的一半，0 测试</span></p>
+              </div>
+              <div class="flex flex-col items-center gap-1 w-36 opacity-60">
+                <div class="w-full h-16 border-2 border-dashed border-red-300 bg-red-50 rounded flex items-center justify-center"><p class="box-label text-red-500 text-center">需要下载<br/>却只能复制</p></div>
+                <p class="box-label text-slate-600">LightRAG 嵌入模型<br/><span class="normal-case">缺失 → "手动放置"</span></p>
+              </div>
+            </div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+            <p class="box-label text-slate-500 mb-3">After — 推理归推理，分发归分发</p>
+            <div class="flex items-end justify-center gap-8 h-56">
+              <div class="flex flex-col items-center gap-1 w-40">
+                <div class="w-full deep text-white rounded" style="height:170px">
+                  <p class="box-label text-slate-400 pt-2 text-center">深模块</p>
+                  <p class="text-center font-semibold">ModelRepository</p>
+                  <p class="text-[10px] text-slate-300 text-center font-mono mt-1">fetch(repo, files, dir)<br/>progress(Consumer)</p>
+                  <p class="text-[10px] text-slate-400 text-center mt-2 leading-tight">镜像回退 · 重定向 · 校验<br/>断点/失败恢复</p>
+                </div>
+                <p class="box-label text-slate-600 mt-1">两个真实消费者 = 真实接缝 ✓</p>
+              </div>
+              <div class="flex flex-col gap-2 w-36">
+                <div class="border-2 border-slate-300 bg-white rounded p-2"><p class="box-label text-slate-500">精排器</p><p class="text-xs">纯推理，加载失败仅降级</p></div>
+                <div class="border-2 border-slate-300 bg-white rounded p-2"><p class="box-label text-slate-500">嵌入模型</p><p class="text-xs">同一接口自动获取</p></div>
+                <div class="border-2 border-slate-300 bg-white rounded p-2"><p class="box-label text-slate-500">ModelFileChecker</p><p class="text-xs">查询下载状态，不再靠约定</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <p class="font-semibold text-slate-700">问题</p>
+            <p class="text-slate-600 mt-1">镜像回退、302、权重文件清单——这套 HTTP 分发基础设施困在推理类里；LightRAG 嵌入模型缺第二个消费者时只能"手动放置"。</p>
+          </div>
+          <div>
+            <p class="font-semibold text-slate-700">方案</p>
+            <p class="text-slate-600 mt-1">抽 ModelRepository 深模块，接口只有 fetch + 进度回调；精排器与嵌入模型各做一个适配器，ModelFileChecker 汇报真实状态。</p>
+          </div>
+        </div>
+
+        <ul class="grid md:grid-cols-2 gap-x-6 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+          <li><b>locality</b>：下载 bug 集中（近 6 提交 4 个是它：URL/权重/镜像/回滚）</li>
+          <li><b>leverage</b>：一个接口，2 个真实消费者</li>
+          <li>两个消费者证明接缝是真实的，不是假设</li>
+          <li>fetch 可用本地目录适配器做测试，不用真网络</li>
+          <li>"环境检测→一键安装"闭环补上模型这一环</li>
+        </ul>
+      </article>
+
+      <!-- ================================================================ -->
+      <!-- 候选 3: RAGService 编排 -->
+      <!-- ================================================================ -->
+      <article id="c3" class="rounded-xl border border-slate-200 bg-white shadow-sm p-8 space-y-6">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <h2 class="font-serif text-2xl font-bold">3 · 统一 RAGService 的检索编排，堵住 instanceof 泄漏</h2>
+          <div class="flex gap-2">
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring</span>
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">in-process</span>
+          </div>
+        </div>
+
+        <div class="font-mono text-sm text-slate-600 leading-relaxed">
+          RAGService.java:63-109（4 个望远镜构造函数）· RAGService.java:145-204（answerWithSources 三分支）· RAGService.java:223（instanceof RerankConfig）
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+            <p class="box-label text-slate-500 mb-2">Before — 三条岔路各自编排</p>
+            <pre class="mermaid">
+flowchart TB
+  Q["answerWithSources(query)"]
+  Q --> A["多路召回分支<br/>recall → rerank → 映射"]
+  Q --> B["查询增强分支<br/>embed → search ×N → fuse → rerank → 映射"]
+  Q --> C["朴素分支<br/>embed → search → 映射"]
+  B -.->|"config instanceof RerankConfig<br/>运行时探测接口之外的事实"| R["rerankIfAvailable"]
+  A --> R
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class R leak
+            </pre>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4 flex flex-col justify-center">
+            <p class="box-label text-slate-500 mb-3">After — 一条管线，岔路成为内部策略</p>
+            <div class="flex flex-col items-center gap-1">
+              <div class="deep text-white rounded-lg px-8 py-4 w-80 shadow-md">
+                <div class="box-label text-slate-400">深模块 · 单一入口</div>
+                <div class="font-semibold">RetrievalPipeline</div>
+                <div class="text-[10px] text-slate-300 font-mono mt-1 text-center">retrieve(query, overrides) → List&lt;Source&gt;</div>
+              </div>
+              <svg width="240" height="20"><line x1="120" y1="0" x2="120" y2="20" stroke="#94a3b8" stroke-width="1.5"/></svg>
+              <div class="flex gap-2 text-[10px] text-slate-500">
+                <span class="border border-slate-300 bg-white rounded px-2 py-1 opacity-70">召回策略（内部接缝）</span>
+                <span class="border border-slate-300 bg-white rounded px-2 py-1 opacity-70">融合</span>
+                <span class="border border-slate-300 bg-white rounded px-2 py-1 opacity-70">精排</span>
+                <span class="border border-slate-300 bg-white rounded px-2 py-1 opacity-70">映射</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <p class="font-semibold text-slate-700">问题</p>
+            <p class="text-slate-600 mt-1">声明接口（RetrievalConfig 等 3 个）不含它真正需要的事实（RerankConfig.topK），只能运行时 instanceof 探测；三条分支重复"检索→融合→精排→映射"骨架；4 个望远镜构造函数是同一蔓延的时间轴。</p>
+          </div>
+          <div>
+            <p class="font-semibold text-slate-700">方案</p>
+            <p class="text-slate-600 mt-1">深化为单一 retrieve 入口，分支降级为内部策略；构造函数收一个完整的依赖对象，接口诚实声明全部所需配置。</p>
+          </div>
+        </div>
+
+        <ul class="grid md:grid-cols-2 gap-x-6 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+          <li>接口诚实：删掉 instanceof 与 null-配置防御</li>
+          <li><b>locality</b>：融合/精排顺序改动只改一处</li>
+          <li>评估管线（EvaluationPipeline）可复用同一 retrieve 入口</li>
+          <li>现有 RAGServiceTest 直接迁移为管线测试</li>
+        </ul>
+      </article>
+
+      <!-- ================================================================ -->
+      <!-- 候选 4: AppConfig -->
+      <!-- ================================================================ -->
+      <article id="c4" class="rounded-xl border border-slate-200 bg-white shadow-sm p-8 space-y-6">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <h2 class="font-serif text-2xl font-bold">4 · 收敛 AppConfig 的"每键五处编辑"</h2>
+          <div class="flex gap-2">
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring</span>
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">in-process</span>
+          </div>
+        </div>
+
+        <div class="font-mono text-sm text-slate-600 leading-relaxed">
+          AppConfig.java（637 行 · 实现 10 个配置接口 · ~60 个配置键）<br>
+          例：新增 rerankDownloadMirror 需同时改 L178（字段）· L255（默认值）· L398（applyFileConfig）· L475（applyEnvOverrides）· L624（getter）
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+            <p class="box-label text-slate-500 mb-3">Before — 一个键穿透五层</p>
+            <div class="space-y-1.5 max-w-xs mx-auto">
+              <div class="h-9 border-l-4 border-red-400 bg-red-50 flex items-center px-3 text-xs text-red-800">① 私有字段 + Javadoc</div>
+              <div class="h-9 border-l-4 border-red-400 bg-red-50 flex items-center px-3 text-xs text-red-800">② 构造器默认值</div>
+              <div class="h-9 border-l-4 border-red-400 bg-red-50 flex items-center px-3 text-xs text-red-800">③ applyFileConfig 手写 Map 取值</div>
+              <div class="h-9 border-l-4 border-red-400 bg-red-50 flex items-center px-3 text-xs text-red-800">④ applyEnvOverrides 手写 envInt/envBool</div>
+              <div class="h-9 border-l-4 border-red-400 bg-red-50 flex items-center px-3 text-xs text-red-800">⑤ getter</div>
+              <p class="text-[10px] text-slate-500 text-center pt-1">默认值 → config.json → 环境变量的优先级链被逐键手工重铺</p>
+            </div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+            <p class="box-label text-slate-500 mb-3">After — 每节一个 record，绑定器统一走链</p>
+            <div class="space-y-1.5 max-w-xs mx-auto">
+              <div class="h-16 deep rounded flex flex-col items-center justify-center text-white">
+                <span class="box-label text-slate-400">深模块</span>
+                <span class="text-sm font-semibold">ConfigBinder.bind(section, json, envPrefix)</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 pt-1">
+                <div class="border border-slate-300 bg-white rounded px-2 py-1 text-[10px] font-mono">record LlmCfg(...)</div>
+                <div class="border border-slate-300 bg-white rounded px-2 py-1 text-[10px] font-mono">record RerankCfg(...)</div>
+                <div class="border border-slate-300 bg-white rounded px-2 py-1 text-[10px] font-mono">record MilvusCfg(...)</div>
+                <div class="border border-slate-300 bg-white rounded px-2 py-1 text-[10px] font-mono">record EnvCheckCfg(...)</div>
+              </div>
+              <p class="text-[10px] text-slate-500 text-center pt-1">优先级链（默认→文件→环境变量）只实现一次；10 个配置接口的接缝保持不变</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <p class="font-semibold text-slate-700">问题</p>
+            <p class="text-slate-600 mt-1">每加一个配置键要改 5 处；env 变量命名约定逐键手写，靠人肉保持与 config.example.json 一致。摩擦是真实的，但机械、低 bug（近期故障不在此）。</p>
+          </div>
+          <div>
+            <p class="font-semibold text-slate-700">方案</p>
+            <p class="text-slate-600 mt-1">每个配置节变成 record，一个通用 ConfigBinder 实现优先级链。10 个 Config 接口这个外部接缝不动——改的是实现形状，不是接口。</p>
+          </div>
+        </div>
+
+        <ul class="grid md:grid-cols-2 gap-x-6 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+          <li>新键从 5 处编辑降到 1 处</li>
+          <li><b>locality</b>：优先级链逻辑只有一份</li>
+          <li>AppConfigTest 迁移为绑定器的表驱动测试</li>
+          <li>注意：这是实现深化，接缝本就合理</li>
+        </ul>
+      </article>
+
+      <!-- ================================================================ -->
+      <!-- 候选 5: SSE 广播 -->
+      <!-- ================================================================ -->
+      <article id="c5" class="rounded-xl border border-slate-200 bg-white shadow-sm p-8 space-y-6">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <h2 class="font-serif text-2xl font-bold">5 · SSE 广播双头管理，协议串泄漏进编排器</h2>
+          <div class="flex gap-2">
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">Speculative</span>
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">in-process</span>
+          </div>
+        </div>
+
+        <div class="font-mono text-sm text-slate-600 leading-relaxed">
+          EnvironmentChecker.java:67-85（手拼 "event: ...\ndata: ...\n\n" 与 JSON 字符串）<br>
+          WebApplication.java:80, 242-278（sseClients Map 只写不读——死记账；断连清理写在两处）
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+            <p class="box-label text-slate-500 mb-3">Before — 两头各管半截</p>
+            <pre class="mermaid">
+flowchart LR
+  EC["EnvironmentChecker<br/>编排 + 安装队列"] -->|"手拼 SSE 协议串<br/>Consumer&lt;String&gt;"| WA["WebApplication SSE 端点<br/>sseClients 死 Map<br/>心跳 + 双重清理"]
+  subgraph 现状
+    EC
+    WA
+  end
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class EC,WA leak
+            </pre>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-stone-50 p-4 flex flex-col items-center justify-center gap-3">
+            <p class="box-label text-slate-500">After — 协议收进一个广播模块</p>
+            <div class="deep text-white rounded-lg px-8 py-4 shadow-md">
+              <div class="box-label text-slate-400">深模块</div>
+              <div class="font-semibold">SseHub</div>
+              <div class="text-[10px] text-slate-300 font-mono mt-1">subscribe(handler) · broadcast(event, pojo)</div>
+              <div class="text-[10px] text-slate-400 mt-2">内部：wire 格式 · JSON 序列化 · 死连接摘除</div>
+            </div>
+            <p class="text-xs text-slate-500 text-center">EnvironmentChecker 只广播领域事件（Map/Pojo），<br/>不再知道 SSE 协议长什么样</p>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <p class="font-semibold text-slate-700">问题</p>
+            <p class="text-slate-600 mt-1">编排器手拼线协议字符串和 JSON（此前 JSON 拼接就出过解析失败）；端点侧还留着一个只写不读的 sseClients Map。小，但真实。</p>
+          </div>
+          <div>
+            <p class="font-semibold text-slate-700">方案</p>
+            <p class="text-slate-600 mt-1">SseHub 深模块吃掉 wire 格式与连接生命周期；编排器广播领域对象。等环境检测再长新事件时做最划算。</p>
+          </div>
+        </div>
+
+        <ul class="grid md:grid-cols-2 gap-x-6 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+          <li>删除手拼 JSON——bug 温度最高的代码形态</li>
+          <li>顺带删掉 sseClients 死记账</li>
+          <li>广播逻辑可单测（监听器收集断言）</li>
+        </ul>
+      </article>
+
+      </section>
+
+      <!-- ============ Top recommendation ============ -->
+      <section id="top-recommendation" class="rounded-xl deep text-white p-8 shadow-md">
+        <p class="box-label text-emerald-300">Top recommendation</p>
+        <h2 class="font-serif text-2xl font-bold mt-1"><a href="#c1" class="underline decoration-emerald-400 underline-offset-4">候选 1 — Milvus 会话模块</a></h2>
+        <p class="text-slate-300 text-sm mt-2 leading-relaxed max-w-3xl">
+          最近两个生产 bug（启动崩溃 1c0d859、重连端点 46a1dac）都长在这片散布的连接逻辑上，且"重连后过期客户端"还是个未爆的活 bug——这是局部性缺失正在收利息的直接证据。删除测试明确通过：复杂度会在 4 个调用点重现。做完它，<a href="#c2" class="underline decoration-emerald-400 underline-offset-2">候选 2（模型分发）</a>顺势补上环境检测的最后一环。
+        </p>
+      </section>
+
+      <footer class="text-xs text-slate-400 pb-8">
+        生成于 2026-08-20 · 词汇表：模块 module · 接口 interface · 深度 depth · 接缝 seam · 适配器 adapter · 杠杆 leverage · 局部性 locality · 删除测试 deletion test
+      </footer>
+    </main>
+  </body>
+</html>

@@ -6,7 +6,7 @@
 | # | 候选 | 强度 | 状态 | 要点 |
 |---|------|------|------|------|
 | 1 | MilvusSession 向量库会话 | Strong | ✅ 完成（ba48d1e→ab9d1f1，已合并 main） | 连接生命周期收敛为深模块，消费者每次拉取引用；计划见 `docs/superpowers/plans/2026-08-20-milvus-session.md`，术语见 `CONTEXT.md`，推迟项见 ADR-0001 |
-| 2 | ModelRepository 模型分发 | Strong | ❌ 待办 | 下载基建（镜像回退/302/权重清单）困在 `CrossEncoderReranker.java:144-199`；LightRAG 嵌入模型缺失只能提示手动放置；补"环境检测→一键安装"闭环的模型一环 |
+| 2 | ModelRepository 模型分发 | Strong | 🔄 设计已定（2026-09-02 grilling，计划：`docs/superpowers/plans/2026-09-02-model-repository.md`，推迟项 ADR-0002） | 下载基建（镜像回退/302/权重清单）困在 `CrossEncoderReranker.java:144-199`；LightRAG 嵌入模型缺失只能提示手动放置；补"环境检测→一键安装"闭环的模型一环 |
 | 3 | RetrievalPipeline 检索编排 | Worth exploring | ❌ 待办 | `RAGService.java:223` instanceof RerankConfig 泄漏；answerWithSources 三分支重复"检索→融合→精排→映射"骨架；4 个望远镜构造函数 |
 | 4 | ConfigBinder 配置绑定 | Worth exploring | ❌ 待办 | AppConfig 637 行、约 60 键，每加一键改 5 处；方案为每节 record + 通用绑定器，10 个 Config 接口接缝不动 |
 | 5 | SseHub SSE 广播 | Speculative | ❌ 待办 | `EnvironmentChecker.java:68,81` 手拼协议串与 JSON；`WebApplication.java:78` sseClients 只写不读；等环境检测再长新事件时做最划算 |

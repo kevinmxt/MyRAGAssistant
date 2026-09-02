@@ -14,6 +14,17 @@
 
 *避免叫*：MilvusManager（"Manager"不传达时态语义）、VectorStoreSession（接口含 Milvus 专有类型，名不副实）。
 
+### 模型仓库（ModelRepository）
+
+拥有模型制品**本地存在性**的模块：制品清单（repo + 文件集 + 目标目录）、镜像回退链（用户镜像 → hf-mirror.com → huggingface.co）、原子落盘（.part 临时文件 + rename）、逐制品状态记账（MISSING / DOWNLOADING / PRESENT / FAILED）。
+
+- `ensurePresent(artifact)` 幂等：文件齐全跳过、缺失补下，失败抛 `ModelDownloadException`
+- 仓库本身**同步**，线程调度归消费者（组装根 daemon thread），不自管线程池
+- 环境检测的模型检测项（ModelFileChecker）委托 `state()` 查询真实状态，并经 `autoInstall` 接一键安装
+
+*避免叫*：ModelDownloader（只表达下载，丢失"存在性 + 状态"语义）、ModelManager（"Manager"空泛）。
+
 ## 相关决策
 
 - `docs/adr/0001-sparse-recall-no-late-registration.md` — 重连后 sparse 召回不自动恢复（推迟）
+- `docs/adr/0002-model-download-deferred.md` — 模型下载不做断点续传与进度广播（推迟）

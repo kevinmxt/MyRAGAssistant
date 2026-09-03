@@ -10,13 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class CrossEncoderReranker implements Reranker {
@@ -24,33 +18,42 @@ public class CrossEncoderReranker implements Reranker {
     private static final Logger log = LoggerFactory.getLogger(CrossEncoderReranker.class);
     private static final int MAX_SEQ_LENGTH = 512;
 
+    private final RerankConfig config;
+    private final String modelPath;
+    private final File modelDir;
+    private final File onnxFile;
+
     private volatile OrtEnvironment env;
     private volatile OrtSession session;
     private volatile HuggingFaceTokenizer tokenizer;
     private volatile boolean available;
 
     public CrossEncoderReranker(RerankConfig config) {
-        String modelPath = config.getRerankModelPath();
-        File modelDir = new File(modelPath);
-        File onnxFile = new File(modelDir, "model.onnx");
+        this.config = config;
+        this.modelPath = config.getRerankModelPath();
+        this.modelDir = new File(modelPath);
+        this.onnxFile = new File(modelDir, "model.onnx");
 
         if (onnxFile.exists()) {
             loadModel(modelDir, onnxFile, modelPath, config);
-        } else if (config.isRerankAutoDownload()) {
-            log.info("精排模型未找到，启动后台下载 ({}), 应用正常启动，下载完成后自动启用精排", modelPath);
-            Thread downloadThread = new Thread(() -> {
-                downloadModel(modelDir, config);
-                if (onnxFile.exists()) {
-                    loadModel(modelDir, onnxFile, modelPath, config);
-                } else {
-                    log.warn("精排模型下载失败，重排序不可用");
-                }
-            }, "rerank-model-download");
-            downloadThread.setDaemon(true);
-            downloadThread.start();
         } else {
             log.warn("精排模型未找到 ({}), 重排序已降级跳过", onnxFile.getAbsolutePath());
         }
+    }
+
+    /**
+     * 幂等加载入口：模型已可用直接返回 true；模型文件已就位则加载并置可用；
+     * 文件仍缺失时安静返回 false（不下载、不抛异常）。供组装根在模型就绪后触发。
+     */
+    public synchronized boolean loadIfPresent() {
+        if (available) {
+            return true;
+        }
+        if (!onnxFile.exists()) {
+            return false;
+        }
+        loadModel(modelDir, onnxFile, modelPath, config);
+        return available;
     }
 
     private void loadModel(File modelDir, File onnxFile, String modelPath, RerankConfig config) {
@@ -137,64 +140,6 @@ public class CrossEncoderReranker implements Reranker {
         } catch (OrtException ex) {
             log.error("精排推理失败: {}", ex.getMessage());
             return candidates.stream().limit(topK).toList();
-        }
-    }
-
-    // {本地文件名, 仓库内路径}
-    private static final String[][] MODEL_FILES = {
-            {"model.onnx", "onnx/model.onnx"},
-            {"model.onnx_data", "onnx/model.onnx_data"},
-            {"tokenizer.json", "tokenizer.json"},
-    };
-    private static final String MODEL_REPO = "onnx-community/bge-reranker-v2-m3-ONNX";
-
-    private static void downloadModel(File modelDir, RerankConfig config) {
-        String mirror = config.getRerankDownloadMirror();
-        if (!mirror.endsWith("/")) mirror += "/";
-        String repoPrefix = MODEL_REPO + "/resolve/main/";
-
-        modelDir.mkdirs();
-
-        for (String[] entry : MODEL_FILES) {
-            String localName = entry[0];
-            String repoPath = entry[1];
-            File dest = new File(modelDir, localName);
-            String[] urls = {
-                    mirror + repoPrefix + repoPath,
-                    "https://hf-mirror.com/" + repoPrefix + repoPath,
-                    "https://huggingface.co/" + repoPrefix + repoPath
-            };
-            boolean downloaded = false;
-            for (String url : urls) {
-                try {
-                    HttpURLConnection conn = (HttpURLConnection) URI.create(url).toURL().openConnection();
-                    conn.setConnectTimeout(10000);
-                    conn.setReadTimeout(300000);
-                    conn.setRequestProperty("User-Agent", "MyAIDemo2/1.0");
-                    if (conn.getResponseCode() == 302) {
-                        String redirect = conn.getHeaderField("Location");
-                        conn.disconnect();
-                        conn = (HttpURLConnection) URI.create(redirect).toURL().openConnection();
-                        conn.setConnectTimeout(10000);
-                        conn.setReadTimeout(300000);
-                        conn.setRequestProperty("User-Agent", "MyAIDemo2/1.0");
-                    }
-                    long total = conn.getContentLengthLong();
-                    log.info("正在下载精排模型文件: {} ({} MB), 请耐心等待...",
-                            localName, total > 0 ? String.format("%.1f", total / 1048576.0) : "未知大小");
-                    try (InputStream in = conn.getInputStream()) {
-                        Files.copy(in, dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                    }
-                    log.info("精排模型文件下载完成: {}", localName);
-                    downloaded = true;
-                    break;
-                } catch (IOException e) {
-                    log.debug("从 {} 下载失败: {}", url, e.getMessage());
-                }
-            }
-            if (!downloaded) {
-                log.warn("精排模型文件 {} 下载失败，已尝试全部下载源", localName);
-            }
         }
     }
 

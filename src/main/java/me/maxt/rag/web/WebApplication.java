@@ -91,9 +91,6 @@ public class WebApplication {
         // 向量库会话（构造零 I/O，出生即 DEGRADED；MilvusChecker 委托其探针）
         this.milvusSession = new MilvusSession(config, new RealMilvusConnector());
 
-        // 模型仓库（镜像链：配置镜像优先，内置 hf-mirror / huggingface 兜底）
-        ModelRepository modelRepository = new HttpModelRepository(
-                List.of(config.getDownloadMirror(), "https://hf-mirror.com", "https://huggingface.co"));
         // 精排制品：ONNX 三件套
         ModelArtifact rerankerArtifact = new ModelArtifact("reranker",
                 "onnx-community/bge-reranker-v2-m3-ONNX",
@@ -116,6 +113,11 @@ public class WebApplication {
                         Map.entry("vocab.txt", "vocab.txt"),
                         Map.entry("1_Pooling/config.json", "1_Pooling/config.json")),
                 Path.of(config.getLightRagEmbeddingModelPath()));
+        // 模型仓库（镜像链：配置镜像优先，内置 hf-mirror / huggingface 兜底；
+        // 构造期注册两制品，state() 不依赖 ensurePresent 先发生——autoDownload=false 或环境检测先于下载线程时仍能按文件现算）
+        ModelRepository modelRepository = new HttpModelRepository(
+                List.of(config.getDownloadMirror(), "https://hf-mirror.com", "https://huggingface.co"),
+                rerankerArtifact, embeddingArtifact);
 
         // 环境检测（非阻塞后台启动，SSE 推送结果）
         List<DependencyChecker> checkers = List.of(

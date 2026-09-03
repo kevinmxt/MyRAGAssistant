@@ -42,7 +42,15 @@ public class HttpModelRepository implements ModelRepository {
     private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
 
     public HttpModelRepository(List<String> mirrorBaseUrls) {
+        this(mirrorBaseUrls, new ModelArtifact[0]);
+    }
+
+    /** 构造期预注册已知制品：state() 无记账时按文件现算，不依赖 ensurePresent 先发生 */
+    public HttpModelRepository(List<String> mirrorBaseUrls, ModelArtifact... knownArtifacts) {
         this.mirrorBaseUrls = List.copyOf(mirrorBaseUrls);
+        for (ModelArtifact artifact : knownArtifacts) {
+            artifacts.put(artifact.key(), artifact);
+        }
     }
 
     @Override

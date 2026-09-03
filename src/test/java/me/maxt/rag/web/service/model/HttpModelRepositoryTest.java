@@ -163,6 +163,30 @@ class HttpModelRepositoryTest {
         assertThat(repository.state("bge-reranker").status()).isEqualTo(DownloadState.Status.PRESENT);
     }
 
+    @Test
+    void shouldComputeStateFromFilePresenceWithoutEnsurePresent() throws Exception {
+        // 构造期注册后，未调 ensurePresent 时 state() 按文件现算而非"未注册的制品"
+        // （autoDownload=false 手动放置模型、或环境检测先于下载线程的场景）
+        Path presentDir = tempDir.resolve("present");
+        Files.createDirectories(presentDir);
+        Files.writeString(presentDir.resolve("model.onnx"), "local-onnx");
+        Files.writeString(presentDir.resolve("tokenizer.json"), "local-tokenizer");
+        ModelArtifact present = new ModelArtifact("present", REPO,
+                Map.of("model.onnx", "onnx/model.onnx",
+                       "tokenizer.json", "tokenizer.json"),
+                presentDir);
+        ModelArtifact absent = new ModelArtifact("absent", REPO,
+                Map.of("model.onnx", "onnx/model.onnx"), tempDir.resolve("absent"));
+        HttpModelRepository repository = new HttpModelRepository(List.of("http://localhost:1"), present, absent);
+
+        DownloadState presentState = repository.state("present");
+        DownloadState absentState = repository.state("absent");
+
+        assertThat(presentState.status()).isEqualTo(DownloadState.Status.PRESENT);
+        assertThat(absentState.status()).isEqualTo(DownloadState.Status.MISSING);
+        assertThat(absentState.detail()).contains("文件缺失");  // 走的是文件现算分支，非"未注册"
+    }
+
     // ---- 工具 ----
 
     private static ModelArtifact artifact(Path targetDir) {

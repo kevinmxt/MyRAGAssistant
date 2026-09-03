@@ -66,6 +66,8 @@ public class ModelFileChecker implements DependencyChecker {
             }
             return true;
         } catch (ModelDownloadException e) {
+            // 失败原因回流 install-log：EnvironmentChecker 广播"请检查日志"，此流不能没有失败信息
+            log.accept("下载失败: " + e.getMessage());
             return false;
         }
     }

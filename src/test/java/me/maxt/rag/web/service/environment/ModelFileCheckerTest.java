@@ -94,10 +94,13 @@ class ModelFileCheckerTest {
         repo.put("reranker", new DownloadState(Status.MISSING, "文件缺失"));
         repo.failOnEnsure = new ModelDownloadException("全部镜像不可用");
         ModelFileChecker checker = new ModelFileChecker(repo, artifact("reranker"));
+        List<String> lines = new ArrayList<>();
 
-        boolean ok = checker.autoInstall(line -> { });
+        boolean ok = checker.autoInstall(lines::add);
 
         assertThat(ok).isFalse();
+        // 失败原因必须回流 install-log：广播文案指向"请检查日志"，此流不能没有失败信息
+        assertThat(lines).anyMatch(line -> line.contains("下载失败") && line.contains("全部镜像不可用"));
     }
 
     // ---- 工具 ----

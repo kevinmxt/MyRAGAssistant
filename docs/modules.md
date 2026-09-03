@@ -2,13 +2,14 @@
 
 | 模块 | 包路径 | 职责 |
 |------|--------|------|
-| 配置 | `config/` | AppConfig 实现 10 个配置接口（Llm / Retrieval / Document / Server / QueryEnhancement / Milvus / Recall / Rerank / Evaluation / EnvCheck） |
+| 配置 | `config/` | AppConfig 实现 11 个配置接口（Llm / Retrieval / Document / Server / QueryEnhancement / Milvus / Recall / Rerank / Evaluation / EnvCheck / Model） |
 | 文档服务 | `service/DocumentService` | 文档摄入、目录浏览、文件列表 |
 | 向量库会话 | `service/vector/MilvusSession` | 向量存储连接生命周期：探针/建连/降级/重连，DEGRADED↔CONNECTED 原子切换（换 store + 重建索引）；消费者经 `nativeClient()` 拉取当前客户端，重连后永不过期 |
 | 向量存储门面 | `service/EmbeddingStoreManager` | 经 Supplier 解析当前活跃 store，维护文档元数据索引；存储无关，不含连接逻辑 |
 | RAG 服务 | `service/RAGService` | 检索增强生成编排，支持查询增强路由和多路召回 |
 | 知识图谱服务 | `service/KnowledgeGraphService` | LightRAG KG 构建和管理，从 Milvus 回查文档文本 |
 | 环境检测 | `service/environment/` | 6 个 DependencyChecker + EnvironmentChecker 编排器，SSE 推送状态 |
+| 模型仓库 | `service/model/` | ModelRepository 接口 + HttpModelRepository（镜像链回退、.part 临时文件 + 原子 rename、Content-Length 校验、状态记账）；ModelArtifact 声明制品清单，ModelFileChecker 与组装根两处消费 |
 | 智能切分 | `service/chunking/` | 文档分块管线：结构分析 → 策略分类 → 语义切分 → 小模型精炼 |
 | 查询增强 | `service/vector/` | QueryRewriter / HyDEGenerator / QueryEnhancementRouter / ContextualEnricher / RrfFusion |
 | 多路召回 | `service/vector/recall/` | RecallStrategy 接口 + Dense/Sparse/Graph 三路实现 + MultiRecallRouter 编排 |

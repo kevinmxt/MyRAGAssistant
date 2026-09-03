@@ -179,6 +179,8 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `milvus.dimension` | number | `512` | 向量维度 |
 | `milvus.consistencyLevel` | string | `"STRONG"` | Milvus 一致性级别（STRONG 保证写入后立即可查） |
 
+> **升级说明**：旧版 `rerank.autoDownload` / `rerank.downloadMirror` 配置键已移除，改用全局 `model.autoDownload` / `model.downloadMirror`——自动下载现在同时覆盖精排模型与 LightRAG 嵌入模型。
+
 ### 环境变量
 
 | 环境变量 | 对应配置 |

@@ -40,6 +40,7 @@ import me.maxt.rag.web.service.vector.rerank.Reranker;
 import me.maxt.rag.web.service.environment.*;
 import me.maxt.rag.web.service.model.HttpModelRepository;
 import me.maxt.rag.web.service.model.ModelArtifact;
+import me.maxt.rag.web.service.model.ModelDownloadException;
 import me.maxt.rag.web.service.model.ModelRepository;
 
 import java.io.File;
@@ -90,18 +91,30 @@ public class WebApplication {
         // 向量库会话（构造零 I/O，出生即 DEGRADED；MilvusChecker 委托其探针）
         this.milvusSession = new MilvusSession(config, new RealMilvusConnector());
 
-        // 模型仓库（过渡内联构造，Task 5 统一接线到组装根并接 ModelConfig）
+        // 模型仓库（镜像链：配置镜像优先，内置 hf-mirror / huggingface 兜底）
         ModelRepository modelRepository = new HttpModelRepository(
-                List.of("https://hf-mirror.com", "https://huggingface.co"));
+                List.of(config.getDownloadMirror(), "https://hf-mirror.com", "https://huggingface.co"));
+        // 精排制品：ONNX 三件套
         ModelArtifact rerankerArtifact = new ModelArtifact("reranker",
                 "onnx-community/bge-reranker-v2-m3-ONNX",
                 Map.of("model.onnx", "onnx/model.onnx",
                        "model.onnx_data", "onnx/model.onnx_data",
                        "tokenizer.json", "tokenizer.json"),
                 Path.of(config.getRerankModelPath()));
+        // 嵌入制品：sentence-transformers 完整清单（pytorch_model.bin 与 model.safetensors 权重重复，刻意排除）
         ModelArtifact embeddingArtifact = new ModelArtifact("embedding",
                 "BAAI/bge-small-zh-v1.5",
-                Map.of("config.json", "config.json"),
+                Map.ofEntries(
+                        Map.entry("config.json", "config.json"),
+                        Map.entry("config_sentence_transformers.json", "config_sentence_transformers.json"),
+                        Map.entry("model.safetensors", "model.safetensors"),
+                        Map.entry("modules.json", "modules.json"),
+                        Map.entry("sentence_bert_config.json", "sentence_bert_config.json"),
+                        Map.entry("special_tokens_map.json", "special_tokens_map.json"),
+                        Map.entry("tokenizer.json", "tokenizer.json"),
+                        Map.entry("tokenizer_config.json", "tokenizer_config.json"),
+                        Map.entry("vocab.txt", "vocab.txt"),
+                        Map.entry("1_Pooling/config.json", "1_Pooling/config.json")),
                 Path.of(config.getLightRagEmbeddingModelPath()));
 
         // 环境检测（非阻塞后台启动，SSE 推送结果）
@@ -161,6 +174,14 @@ public class WebApplication {
                 config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode(),
                 config.getApiKey(), config.getBaseUrl(), config.getModelName());
         Thread lightragInit = new Thread(() -> {
+            // 嵌入模型前置下载（失败降级，LightRAG init 按自身逻辑继续失败降级）
+            if (config.isAutoDownload()) {
+                try {
+                    modelRepository.ensurePresent(embeddingArtifact);
+                } catch (ModelDownloadException e) {
+                    log.warn("LightRAG 嵌入模型下载失败，交由 LightRAG 自身降级: {}", e.getMessage());
+                }
+            }
             lightRagBridge.init();
             log.info("LightRAG 后台初始化完成: initialized={}", lightRagBridge.isInitialized());
         }, "lightrag-init");
@@ -186,7 +207,24 @@ public class WebApplication {
         this.kgService = kgService;
         this.kgController = kgController;
 
-        this.reranker = new CrossEncoderReranker(config);
+        CrossEncoderReranker crossEncoderReranker = new CrossEncoderReranker(config);
+        this.reranker = crossEncoderReranker;
+
+        // 精排模型：autoDownload 时后台线程下载完成后幂等加载（失败降级跳过精排）；否则维持构造时本地加载
+        if (config.isAutoDownload()) {
+            Thread rerankerDownload = new Thread(() -> {
+                try {
+                    modelRepository.ensurePresent(rerankerArtifact);
+                    crossEncoderReranker.loadIfPresent();
+                } catch (ModelDownloadException e) {
+                    log.warn("精排模型下载失败，重排序保持降级: {}", e.getMessage());
+                }
+            }, "model-download-reranker");
+            rerankerDownload.setDaemon(true);
+            rerankerDownload.start();
+        } else {
+            crossEncoderReranker.loadIfPresent();
+        }
 
         this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel,
                 enhancementRouter, config, multiRecallRouter, config, reranker);

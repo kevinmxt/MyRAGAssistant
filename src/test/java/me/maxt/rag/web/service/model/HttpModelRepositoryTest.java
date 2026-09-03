@@ -134,6 +134,22 @@ class HttpModelRepositoryTest {
     }
 
     @Test
+    void shouldCreateParentDirsForNestedLocalNames() throws Exception {
+        // 嵌入制品含 "1_Pooling/config.json" 这类嵌套本地名，落盘前必须先建父目录
+        TestServer server = startFileServer(
+                Map.of("1_Pooling/config.json", "fake-pooling".getBytes(StandardCharsets.UTF_8)));
+        HttpModelRepository repository = new HttpModelRepository(List.of(server.baseUrl()));
+        Path targetDir = tempDir.resolve("model");
+
+        ModelArtifact artifact = new ModelArtifact("bge-embedding", REPO,
+                Map.of("1_Pooling/config.json", "1_Pooling/config.json"), targetDir);
+        repository.ensurePresent(artifact);
+
+        assertThat(Files.readString(targetDir.resolve("1_Pooling/config.json"))).isEqualTo("fake-pooling");
+        assertThat(repository.state("bge-embedding").status()).isEqualTo(DownloadState.Status.PRESENT);
+    }
+
+    @Test
     void shouldNotThrowWhenReensureAfterPresent() throws Exception {
         TestServer server = startFileServer(content());
         HttpModelRepository repository = new HttpModelRepository(List.of(server.baseUrl()));

@@ -38,9 +38,13 @@ import me.maxt.rag.web.service.vector.recall.SparseRecallStrategy;
 import me.maxt.rag.web.service.vector.rerank.CrossEncoderReranker;
 import me.maxt.rag.web.service.vector.rerank.Reranker;
 import me.maxt.rag.web.service.environment.*;
+import me.maxt.rag.web.service.model.HttpModelRepository;
+import me.maxt.rag.web.service.model.ModelArtifact;
+import me.maxt.rag.web.service.model.ModelRepository;
 
 import java.io.File;
 import java.io.PrintWriter;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -86,6 +90,20 @@ public class WebApplication {
         // 向量库会话（构造零 I/O，出生即 DEGRADED；MilvusChecker 委托其探针）
         this.milvusSession = new MilvusSession(config, new RealMilvusConnector());
 
+        // 模型仓库（过渡内联构造，Task 5 统一接线到组装根并接 ModelConfig）
+        ModelRepository modelRepository = new HttpModelRepository(
+                List.of("https://hf-mirror.com", "https://huggingface.co"));
+        ModelArtifact rerankerArtifact = new ModelArtifact("reranker",
+                "onnx-community/bge-reranker-v2-m3-ONNX",
+                Map.of("model.onnx", "onnx/model.onnx",
+                       "model.onnx_data", "onnx/model.onnx_data",
+                       "tokenizer.json", "tokenizer.json"),
+                Path.of(config.getRerankModelPath()));
+        ModelArtifact embeddingArtifact = new ModelArtifact("embedding",
+                "BAAI/bge-small-zh-v1.5",
+                Map.of("config.json", "config.json"),
+                Path.of(config.getLightRagEmbeddingModelPath()));
+
         // 环境检测（非阻塞后台启动，SSE 推送结果）
         List<DependencyChecker> checkers = List.of(
                 new PythonChecker(config, config.getLightRagPythonPath()),
@@ -93,7 +111,7 @@ public class WebApplication {
                 new MilvusChecker(milvusSession),
                 new PandocChecker(config),
                 new TesseractChecker(config),
-                new ModelFileChecker(config, config.getRerankModelPath(), config.getLightRagEmbeddingModelPath()));
+                new ModelFileChecker(modelRepository, rerankerArtifact, embeddingArtifact));
         this.environmentChecker = new EnvironmentChecker(config, checkers);
         this.environmentController = new EnvironmentController(environmentChecker);
         environmentChecker.run();

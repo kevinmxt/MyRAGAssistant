@@ -1,25 +1,28 @@
 package me.maxt.rag.web.service.environment;
 
-import me.maxt.rag.web.config.EnvCheckConfig;
 import me.maxt.rag.web.service.environment.CheckResult.Category;
 import me.maxt.rag.web.service.environment.CheckResult.Status;
+import me.maxt.rag.web.service.model.DownloadState;
+import me.maxt.rag.web.service.model.ModelArtifact;
+import me.maxt.rag.web.service.model.ModelDownloadException;
+import me.maxt.rag.web.service.model.ModelRepository;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
- * 模型文件检测（精排 ONNX 模型 + LightRAG 嵌入模型）。
- * 不重复自动安装——精排模型已有 CrossEncoderReranker 后台线程处理。
+ * 模型文件检测：逐制品查询模型仓库的真实状态（含下载记账），
+ * 并支持一键安装——对非 PRESENT 制品委托仓库 ensurePresent 下载，日志直通安装 SSE。
  */
 public class ModelFileChecker implements DependencyChecker {
 
-    private final String rerankModelPath;
-    private final String lightRagEmbeddingModelPath;
+    private final ModelRepository repository;
+    private final List<ModelArtifact> artifacts;
 
-    public ModelFileChecker(EnvCheckConfig config, String rerankModelPath, String lightRagEmbeddingModelPath) {
-        this.rerankModelPath = rerankModelPath;
-        this.lightRagEmbeddingModelPath = lightRagEmbeddingModelPath;
+    public ModelFileChecker(ModelRepository repository, ModelArtifact... artifacts) {
+        this.repository = repository;
+        this.artifacts = List.of(artifacts);
     }
 
     @Override
@@ -27,31 +30,43 @@ public class ModelFileChecker implements DependencyChecker {
 
     @Override
     public CheckResult check() {
-        List<String> missing = new ArrayList<>();
-        List<String> present = new ArrayList<>();
-
-        // 精排模型
-        File rerankDir = new File(rerankModelPath);
-        File onnxFile = new File(rerankDir, "model.onnx");
-        if (onnxFile.exists()) {
-            present.add("reranker (bge-reranker-v2-m3)");
-        } else {
-            missing.add("精排模型 (bge-reranker-v2-m3) → 应用已启动后台自动下载");
+        List<String> ready = new ArrayList<>();
+        List<String> problems = new ArrayList<>();
+        boolean failed = false;
+        for (ModelArtifact artifact : artifacts) {
+            DownloadState state = repository.state(artifact.key());
+            switch (state.status()) {
+                case PRESENT -> ready.add(artifact.key() + " (" + state.detail() + ")");
+                case DOWNLOADING -> problems.add(artifact.key() + " 下载中: " + state.detail());
+                case MISSING -> problems.add(artifact.key() + " 缺失 → 可一键安装");
+                case FAILED -> {
+                    problems.add(artifact.key() + " 下载失败: " + state.detail());
+                    failed = true;
+                }
+            }
         }
-
-        // LightRAG 嵌入模型
-        File embeddingDir = new File(lightRagEmbeddingModelPath);
-        if (embeddingDir.exists() && embeddingDir.isDirectory()) {
-            present.add("embedding (" + embeddingDir.getName() + ")");
-        } else {
-            missing.add("LightRAG 嵌入模型 → 需手动放置或通过 multiRecall.lightrag.embeddingModelPath 配置");
-        }
-
-        if (missing.isEmpty()) {
+        if (problems.isEmpty()) {
             return new CheckResult(name(), Category.MODEL, Status.OK, null,
-                    String.join(", ", present));
+                    String.join(", ", ready));
         }
-        return new CheckResult(name(), Category.MODEL, Status.MISSING, null,
-                "缺失: " + String.join("; ", missing));
+        return new CheckResult(name(), Category.MODEL, failed ? Status.ERROR : Status.MISSING, null,
+                String.join("; ", problems));
+    }
+
+    @Override
+    public boolean canAutoInstall() { return true; }
+
+    @Override
+    public boolean autoInstall(Consumer<String> log) {
+        try {
+            for (ModelArtifact artifact : artifacts) {
+                if (repository.state(artifact.key()).status() != DownloadState.Status.PRESENT) {
+                    repository.ensurePresent(artifact, log);
+                }
+            }
+            return true;
+        } catch (ModelDownloadException e) {
+            return false;
+        }
     }
 }

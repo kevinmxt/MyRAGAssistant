@@ -52,9 +52,7 @@
   "rerank": {
     "modelPath": "models/bge-reranker-v2-m3",
     "expansionFactor": 3,
-    "topK": 5,
-    "autoDownload": true,
-    "downloadMirror": "https://hf-mirror.com"
+    "topK": 5
   },
   "evaluation": {
     "topK": 5,
@@ -67,5 +65,9 @@
     "autoInstall": false,
     "checkTimeoutSeconds": 15,
     "probeTimeoutSeconds": 5
+  },
+  "model": {
+    "autoDownload": true,
+    "downloadMirror": "https://hf-mirror.com"
   }
 }

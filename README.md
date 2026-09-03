@@ -161,8 +161,8 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `rerank.modelPath` | string | `"models/bge-reranker-v2-m3"` | 精排模型路径 |
 | `rerank.expansionFactor` | number | `3` | 粗召回扩展倍数（召回 topK × N 个候选给精排筛选） |
 | `rerank.topK` | number | `5` | 精排后最终返回给 LLM 的结果数 |
-| `rerank.autoDownload` | boolean | `true` | 模型缺失时是否自动下载（启动后台异步下载） |
-| `rerank.downloadMirror` | string | `"https://hf-mirror.com"` | 模型下载镜像地址（国内优先，失败回退 HuggingFace） |
+| `model.autoDownload` | boolean | `true` | 模型缺失时是否自动下载（启动后台异步下载） |
+| `model.downloadMirror` | string | `"https://hf-mirror.com"` | 模型下载镜像地址（国内优先，失败回退 HuggingFace） |
 | `evaluation.topK` | number | `5` | 评估时 Recall@K / Precision@K / NDCG@K 的 K 值 |
 | `evaluation.formats` | array | `["markdown","txt","pdf","docx","json"]` | 启用的评估格式列表 |
 | `evaluation.answerQualityEnabled` | boolean | `true` | 是否默认启用 LLM 答案质量评估 |
@@ -221,8 +221,8 @@ java -jar target/MyAIDemo2-1.0-SNAPSHOT.jar
 | `RAG_RERANK_MODEL_PATH` | `rerank.modelPath` |
 | `RAG_RERANK_EXPANSION_FACTOR` | `rerank.expansionFactor` |
 | `RAG_RERANK_TOP_K` | `rerank.topK` |
-| `RAG_RERANK_AUTO_DOWNLOAD` | `rerank.autoDownload` |
-| `RAG_RERANK_DOWNLOAD_MIRROR` | `rerank.downloadMirror` |
+| `RAG_MODEL_AUTO_DOWNLOAD` | `model.autoDownload` |
+| `RAG_MODEL_MIRROR` | `model.downloadMirror` |
 | `RAG_EVALUATION_TOP_K` | `evaluation.topK` |
 | `RAG_EVALUATION_FORMATS` | `evaluation.formats`（逗号分隔） |
 | `RAG_EVALUATION_ANSWER_QUALITY` | `evaluation.answerQualityEnabled` |

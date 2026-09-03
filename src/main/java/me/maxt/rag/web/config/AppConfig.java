@@ -25,7 +25,7 @@ import java.util.Map;
  * @author maxt
  * @since 1.0
  */
-public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig, RerankConfig, EvaluationConfig, EnvCheckConfig {
+public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, ServerConfig, QueryEnhancementConfig, MilvusConfig, RecallConfig, RerankConfig, EvaluationConfig, EnvCheckConfig, ModelConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
@@ -171,12 +171,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** 精排后返回给 LLM 的结果数，可通过环境变量 RAG_RERANK_TOP_K 覆盖 */
     private int rerankTopK;
 
-    /** 模型文件缺失时是否自动下载，可通过环境变量 RAG_RERANK_AUTO_DOWNLOAD 覆盖 */
-    private boolean rerankAutoDownload;
-
-    /** 模型下载镜像地址，可通过环境变量 RAG_RERANK_DOWNLOAD_MIRROR 覆盖 */
-    private String rerankDownloadMirror;
-
     // ========== 评估参数 ==========
 
     /** 评估指标（Recall@K / Precision@K / NDCG@K）的 K 值，可通过环境变量 RAG_EVALUATION_TOP_K 覆盖 */
@@ -204,6 +198,14 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
 
     /** 单个子进程探测超时秒数，可通过环境变量 RAG_ENV_PROBE_TIMEOUT 覆盖 */
     private int probeTimeoutSeconds;
+
+    // ========== 模型下载参数 ==========
+
+    /** 模型文件缺失时是否自动下载，可通过环境变量 RAG_MODEL_AUTO_DOWNLOAD 覆盖 */
+    private boolean modelAutoDownload;
+
+    /** 模型下载镜像地址，可通过环境变量 RAG_MODEL_MIRROR 覆盖 */
+    private String modelDownloadMirror;
 
     /**
      * 使用默认值构造配置实例。
@@ -251,8 +253,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.rerankModelPath = "models/bge-reranker-v2-m3";
         this.rerankExpansionFactor = 3;
         this.rerankTopK = 5;
-        this.rerankAutoDownload = true;
-        this.rerankDownloadMirror = "https://hf-mirror.com";
         this.evaluationTopK = 5;
         this.evaluationFormats = Arrays.asList("markdown", "txt", "pdf", "docx", "json");
         this.answerQualityEnabled = true;
@@ -261,6 +261,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.autoInstallEnabled = false;
         this.envCheckTimeoutSeconds = 15;
         this.probeTimeoutSeconds = 5;
+        this.modelAutoDownload = true;
+        this.modelDownloadMirror = "https://hf-mirror.com";
     }
 
     /**
@@ -394,8 +396,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             config.rerankModelPath = getString(rerank, "modelPath", config.rerankModelPath);
             config.rerankExpansionFactor = getInt(rerank, "expansionFactor", config.rerankExpansionFactor);
             config.rerankTopK = getInt(rerank, "topK", config.rerankTopK);
-            config.rerankAutoDownload = getBoolean(rerank, "autoDownload", config.rerankAutoDownload);
-            config.rerankDownloadMirror = getString(rerank, "downloadMirror", config.rerankDownloadMirror);
         }
 
         Map<String, Object> evaluation = (Map<String, Object>) fileConfig.get("evaluation");
@@ -419,6 +419,12 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
             config.autoInstallEnabled = getBoolean(environment, "autoInstall", config.autoInstallEnabled);
             config.envCheckTimeoutSeconds = getInt(environment, "checkTimeoutSeconds", config.envCheckTimeoutSeconds);
             config.probeTimeoutSeconds = getInt(environment, "probeTimeoutSeconds", config.probeTimeoutSeconds);
+        }
+
+        Map<String, Object> model = (Map<String, Object>) fileConfig.get("model");
+        if (model != null) {
+            config.modelAutoDownload = getBoolean(model, "autoDownload", config.modelAutoDownload);
+            config.modelDownloadMirror = getString(model, "downloadMirror", config.modelDownloadMirror);
         }
     }
 
@@ -471,8 +477,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.rerankModelPath = env("RAG_RERANK_MODEL_PATH", config.rerankModelPath);
         config.rerankExpansionFactor = envInt("RAG_RERANK_EXPANSION_FACTOR", config.rerankExpansionFactor);
         config.rerankTopK = envInt("RAG_RERANK_TOP_K", config.rerankTopK);
-        config.rerankAutoDownload = envBool("RAG_RERANK_AUTO_DOWNLOAD", config.rerankAutoDownload);
-        config.rerankDownloadMirror = env("RAG_RERANK_DOWNLOAD_MIRROR", config.rerankDownloadMirror);
         config.evaluationTopK = envInt("RAG_EVALUATION_TOP_K", config.evaluationTopK);
         String formatsEnv = System.getenv("RAG_EVALUATION_FORMATS");
         if (formatsEnv != null && !formatsEnv.isEmpty()) {
@@ -484,6 +488,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         config.autoInstallEnabled = envBool("RAG_ENV_AUTO_INSTALL", config.autoInstallEnabled);
         config.envCheckTimeoutSeconds = envInt("RAG_ENV_CHECK_TIMEOUT", config.envCheckTimeoutSeconds);
         config.probeTimeoutSeconds = envInt("RAG_ENV_PROBE_TIMEOUT", config.probeTimeoutSeconds);
+        config.modelAutoDownload = envBool("RAG_MODEL_AUTO_DOWNLOAD", config.modelAutoDownload);
+        config.modelDownloadMirror = env("RAG_MODEL_MIRROR", config.modelDownloadMirror);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -618,10 +624,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     public int getRerankExpansionFactor() { return rerankExpansionFactor; }
     /** @return 精排后返回给 LLM 的结果数 */
     public int getRerankTopK() { return rerankTopK; }
-    /** @return 模型文件缺失时是否自动下载 */
-    public boolean isRerankAutoDownload() { return rerankAutoDownload; }
-    /** @return 模型下载镜像地址 */
-    public String getRerankDownloadMirror() { return rerankDownloadMirror; }
     /** @return 评估指标（Recall@K / Precision@K / NDCG@K）的 K 值 */
     @Override public int getEvaluationTopK() { return evaluationTopK; }
     /** @return 启用的评估格式列表 */
@@ -634,4 +636,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     @Override public boolean isAutoInstallEnabled() { return autoInstallEnabled; }
     @Override public int getEnvCheckTimeoutSeconds() { return envCheckTimeoutSeconds; }
     @Override public int getProbeTimeoutSeconds() { return probeTimeoutSeconds; }
+    /** @return 模型文件缺失时是否自动下载 */
+    @Override public boolean isAutoDownload() { return modelAutoDownload; }
+    /** @return 模型下载镜像地址 */
+    @Override public String getDownloadMirror() { return modelDownloadMirror; }
 }

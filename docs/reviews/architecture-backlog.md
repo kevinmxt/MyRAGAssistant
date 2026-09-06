@@ -24,12 +24,12 @@
 - **为何不当期修**：真修复需 watchdog 关闭挂起的流，与"仓库同步执行、不自管线程"的决议（`CONTEXT.md` 术语、ADR-0002 线程归属）存在设计张力，需专门设计讨论后再动。
 - **Task 6 实测补充（2026-09-06）**：同族健壮性缺口——启动下载线程一次性执行、镜像全失败后不重试即永久降级（实测本机 hf-mirror 短时全拒 + huggingface.co 被墙，两制品启动期双双 FAILED）；镜像链含重复项（用户默认镜像与兜底 hf-mirror 相同，每文件多试一轮）。恢复路径（一键安装/重启）已实测可用。重试与镜像去重可与此项一并设计。
 
-## 跟进项：一键安装后自动加载精排（候选 2 遗留，Task 6 发现）
+## 跟进项：一键安装后自动加载精排（候选 2 遗留，Task 6 发现）——✅ 已修（add642c）
 
 - **现象**：`ModelFileChecker.autoInstall` 只 `ensurePresent` 补文件，无人触发 `CrossEncoderReranker.loadIfPresent()`——一键安装完成后文件齐、env 页 OK，但精排保持降级**直到应用重启**。
-- **为何是缝隙**：计划 Task 4 闭环了"安装补文件"，Task 5 的加载触发只接在启动下载线程上；两任务视距内都没出现"装完要加载"的交接。实现与计划一致，属计划缝隙而非实现偏差。
-- **修法方向（供设计讨论）**：EnvironmentChecker 安装成功后回调消费者加载（注入 Runnable 钩子），或组装根给 reranker 加轮询/文件监听。涉及跨模块交接，宜与读超时/watchdog 一起过一轮设计再动。
-- **出处**：`docs/reviews/model-repository-final-review-20260903.md` Task 6 发现 1；实测恢复路径（重启即加载）已验证。
+- **修法（落地）**：`ModelFileChecker.setOnInstalled(Runnable)` 安装成功钩子，组装根注入 `crossEncoderReranker::loadIfPresent`；TDD 两测锁定（成功触发/失败不触发）。
+- **实证（2026-09-06）**：autoDownload=false + 抽走 model.onnx 起应用 → 降级且无下载线程 → 一键安装 → 同一安装线程内日志"精排模型已加载"，免重启生效，终态 OK。
+- **出处**：`docs/reviews/model-repository-final-review-20260903.md` Task 6 发现 1。
 
 ## 维护约定
 

@@ -119,14 +119,19 @@ public class WebApplication {
                 List.of(config.getDownloadMirror(), "https://hf-mirror.com", "https://huggingface.co"),
                 rerankerArtifact, embeddingArtifact);
 
+        // 精排器（构造仅加载已存在的模型，不下载；补文件靠下方下载线程/一键安装）
+        CrossEncoderReranker crossEncoderReranker = new CrossEncoderReranker(config);
+
         // 环境检测（非阻塞后台启动，SSE 推送结果）
+        ModelFileChecker modelFileChecker = new ModelFileChecker(modelRepository, rerankerArtifact, embeddingArtifact);
+        modelFileChecker.setOnInstalled(crossEncoderReranker::loadIfPresent);
         List<DependencyChecker> checkers = List.of(
                 new PythonChecker(config, config.getLightRagPythonPath()),
                 new PipPackageChecker(config, config.getLightRagPythonPath()),
                 new MilvusChecker(milvusSession),
                 new PandocChecker(config),
                 new TesseractChecker(config),
-                new ModelFileChecker(modelRepository, rerankerArtifact, embeddingArtifact));
+                modelFileChecker);
         this.environmentChecker = new EnvironmentChecker(config, checkers);
         this.environmentController = new EnvironmentController(environmentChecker);
         environmentChecker.run();
@@ -209,7 +214,6 @@ public class WebApplication {
         this.kgService = kgService;
         this.kgController = kgController;
 
-        CrossEncoderReranker crossEncoderReranker = new CrossEncoderReranker(config);
         this.reranker = crossEncoderReranker;
 
         // 精排模型：autoDownload 时后台线程下载完成后幂等加载（失败降级跳过精排）；否则维持构造时本地加载

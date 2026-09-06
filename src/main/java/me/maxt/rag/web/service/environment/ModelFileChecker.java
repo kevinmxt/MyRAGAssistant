@@ -19,10 +19,16 @@ public class ModelFileChecker implements DependencyChecker {
 
     private final ModelRepository repository;
     private final List<ModelArtifact> artifacts;
+    private Runnable onInstalled;
 
     public ModelFileChecker(ModelRepository repository, ModelArtifact... artifacts) {
         this.repository = repository;
         this.artifacts = List.of(artifacts);
+    }
+
+    /** 安装成功后的激活钩子（组装根注入，如 reranker::loadIfPresent），免重启生效 */
+    public void setOnInstalled(Runnable onInstalled) {
+        this.onInstalled = onInstalled;
     }
 
     @Override
@@ -63,6 +69,9 @@ public class ModelFileChecker implements DependencyChecker {
                 if (repository.state(artifact.key()).status() != DownloadState.Status.PRESENT) {
                     repository.ensurePresent(artifact, log);
                 }
+            }
+            if (onInstalled != null) {
+                onInstalled.run();
             }
             return true;
         } catch (ModelDownloadException e) {

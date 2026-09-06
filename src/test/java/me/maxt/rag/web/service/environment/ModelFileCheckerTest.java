@@ -103,6 +103,35 @@ class ModelFileCheckerTest {
         assertThat(lines).anyMatch(line -> line.contains("下载失败") && line.contains("全部镜像不可用"));
     }
 
+    @Test
+    void shouldRunInstallHookWhenInstallSucceeds() {
+        FakeRepository repo = new FakeRepository();
+        repo.put("reranker", new DownloadState(Status.MISSING, "文件缺失"));
+        List<String> hookCalls = new ArrayList<>();
+        ModelFileChecker checker = new ModelFileChecker(repo, artifact("reranker"));
+        checker.setOnInstalled(() -> hookCalls.add("loaded"));
+
+        boolean ok = checker.autoInstall(line -> { });
+
+        assertThat(ok).isTrue();
+        assertThat(hookCalls).containsExactly("loaded");
+    }
+
+    @Test
+    void shouldNotRunInstallHookWhenInstallFails() {
+        FakeRepository repo = new FakeRepository();
+        repo.put("reranker", new DownloadState(Status.MISSING, "文件缺失"));
+        repo.failOnEnsure = new ModelDownloadException("全部镜像不可用");
+        List<String> hookCalls = new ArrayList<>();
+        ModelFileChecker checker = new ModelFileChecker(repo, artifact("reranker"));
+        checker.setOnInstalled(() -> hookCalls.add("loaded"));
+
+        boolean ok = checker.autoInstall(line -> { });
+
+        assertThat(ok).isFalse();
+        assertThat(hookCalls).isEmpty();
+    }
+
     // ---- 工具 ----
 
     private static ModelArtifact artifact(String key) {

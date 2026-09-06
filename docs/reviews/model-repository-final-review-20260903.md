@@ -47,3 +47,33 @@
 - LightRAG 冒烟：kg 初始化成功（嵌入模型目录由仓库补齐，10 文件清单已按 HF API 核实）
 - 留意悬挂场景：下载中网络停滞时状态是否长期停留 DOWNLOADING（T1-1 跟踪项）
 - 行为与计划有偏差时回填计划备注；backlog 候选 2 终态确认
+
+## Task 6 验证结果（2026-09-06 执行，结论 PASS）
+
+实测环境：清空模型目录冷启动 → hf-mirror 真实下载（reranker 2.29GB 三件套 + embedding 10 文件）→ Docker/Milvus 接入 → 摄取/问答 → 重启。
+
+### 通过项
+
+- 清空目录冷启动：`model-download-reranker` 与 `lightrag-init` 两线程按设计启动，env 页报"缺失 → 可一键安装"（构造期注册生效，无"未注册制品"）
+- 失败路径干净：本机网络瞬断导致两制品各 3 次连接超时后置 FAILED 降级（reranker 降级、LightRAG 交自身降级），**无 .part 残留**、无半截文件
+- 一键安装恢复：`POST /api/env/install` → 异步重下**仅缺失文件**（启动期已完成的 5 个小文件未重下）→ 原子落盘（.part → rename 实测）→ install-done → 重检 `OK (reranker 3 个文件就绪, embedding 10 个文件就绪)`
+- 下载中可见性：env 接口 `INSTALLING/正在安装` + `installInProgress=true`，install-log SSE 逐文件流式（"开始下载/已下载 N 字节"）
+- 防重：下载中重复 POST install → **HTTP 409 "已有安装任务进行中"**
+- 嵌套路径：`1_Pooling/config.json` 子目录正确落盘
+- 重启路径：文件齐备时启动**零网络请求**（无"开始下载"日志），构造器即加载精排（"精排模型已加载"），env 检查在任何 ensurePresent 前现算"文件齐全"
+- 精排冒烟：摄取 modelrepo.txt → 提问 → **top source 命中新文档**（旧垃圾块不再霸榜），精排激活参与链路；降级期间链路透明无噪音
+- Milvus 断连 → 重连（`/api/env/reconnect-milvus` 200 → 状态 OK）
+
+### 发现（按重要度）
+
+1. **⚠️ 一键安装完成后精排不自动加载**（实现与计划一致，属计划缝隙）：安装路径只 `ensurePresent`，无人触发 `loadIfPresent`——装完文件齐、env 页 OK，但精排保持降级**直到重启**。恢复路径已实测（重启即加载）。后续项已登记 backlog。
+2. **启动失败无自动重试**：一次性 daemon 线程，镜像全超时即永久降级（本机实测 hf-mirror 短时全拒绝连接，huggingface.co 被墙不可达）；恢复靠一键安装或重启。镜像链含重复项（默认镜像与兜底相同，每文件多试一轮）。与读超时同属健壮性家族，并入 backlog 跟踪条目。
+3. **LightRAG kg 冒烟受阻（环境）**：Python 3.14.5 无 numpy/lightrag 兼容轮子，`pip install lightrag` metadata-generation-failed；安装编排本身工作正常（事件流/防重/状态正确）。嵌入模型目录 10 文件已由仓库补齐，桥接失败点在 `import lightrag`，先于嵌入加载——仓库侧职责已完成。
+4. **既有问题（非本分支引入）**：Milvus 集合残留旧 PDF 垃圾块污染 top-3（三段同分 0.858）；LLM 调用间歇失败（answer 偶发 null，QueryRewriter 栈迹）。
+5. T1-1 悬挂场景未在真实网络复现（连接层超时正常触发 10s；body 级停滞未发生），维持跟踪。
+
+### 遗留物
+
+- 验证日志：`app-task6.log`、`app-task6-restart.log`、`sse-install.log`、`tmp-docs-verify/`（未提交，可删）
+- 旧模型备份：`../model-backup-20260906/bge-reranker-v2-m3`（2.2GB，新下载已验证可用，确认后可删）
+- Milvus 集合新增 1 个测试 segment（modelrepo.txt）

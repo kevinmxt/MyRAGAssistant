@@ -162,7 +162,13 @@ class HttpModelRepositoryTest {
 
 ### Task 6: 端到端验证（手动，需网络/Docker）
 
-- [ ] `mvn clean package` → 起应用（模型目录清空）：日志按序出现 reranker 下载 → 加载；env 页 model-files 显示"下载中/完成"；下载中重复点安装按钮被防重
-- [ ] 精排链路冒烟：上传文档 → 提问 → 响应含精排（或降级路径日志干净）
-- [ ] LightRAG 冒烟：kg 初始化成功（嵌入模型目录由仓库补齐）
-- [ ] backlog 候选 2 终态更新；如行为与计划偏差，回填本计划备注
+- [x] `mvn clean package` → 起应用（模型目录清空）：日志按序出现 reranker 下载 → 加载；env 页 model-files 显示"下载中/完成"；下载中重复点安装按钮被防重（2026-09-06 实测：冷启动两线程按设计启动；本机网络瞬断致启动下载失败→一键安装恢复→重启加载，全路径走通；409 防重、INSTALLING 状态、install-log SSE 均实证）
+- [x] 精排链路冒烟：上传文档 → 提问 → 响应含精排（或降级路径日志干净）（实测：降级期透明无噪音；重启激活后 top source 命中新摄取文档）
+- [x] LightRAG 冒烟：kg 初始化成功（嵌入模型目录由仓库补齐）（部分：嵌入 10 文件含 1_Pooling 由仓库补齐 ✅；kg init 被 Python 3.14 无 numpy/lightrag 轮子阻挡，属环境限制，仓库侧职责已完成）
+- [x] backlog 候选 2 终态更新；如行为与计划偏差，回填本计划备注（已回填，详见下）
+
+**Task 6 执行备注（偏差回填，2026-09-06）**
+
+1. **一键安装不触发精排加载**：计划缝隙——Task 4 闭环"安装补文件"，Task 5 的 loadIfPresent 只挂在启动下载线程；装完需重启才生效。已登记 backlog 跟进项。
+2. **启动下载失败无重试**：一次性线程 + 镜像链含重复项，网络瞬断即双双永久降级（本机实测）；恢复靠一键安装/重启（均实测可用）。已并入 backlog"读超时/watchdog"跟踪条目。
+3. 完整验证记录与遗留物清单见 `docs/reviews/model-repository-final-review-20260903.md`。

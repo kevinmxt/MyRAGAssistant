@@ -165,4 +165,91 @@ class RetrievalPipelineTest {
         verify(storeManager, atLeastOnce()).search(captor.capture());
         assertThat(captor.getValue().maxResults()).isEqualTo(3);
     }
+
+    // ===== E 通道 =====
+
+    private RetrievalPipeline enhancedPipeline(EmbeddingModel embeddingModel, QueryEnhancementRouter router) {
+        when(enhConfig.isQueryEnhancementEnabled()).thenReturn(true);
+        when(enhConfig.getDefaultEnhancementMode()).thenReturn("rewrite");
+        when(enhConfig.getRrfK()).thenReturn(60);
+        return new RetrievalPipeline(new RetrievalPipeline.Deps(
+                storeManager, embeddingModel, retrievalConfig,
+                router, enhConfig,
+                new MultiRecallRouter(recallConfig, java.util.Map.of()), recallConfig,
+                reranker, rerankConfig));
+    }
+
+    @Test
+    void shouldUseQueryEnhancementSingleVariant() {
+        float[] v1 = {0.5f, 0.5f, 0.5f};
+        TextSegment s1 = TextSegment.from("安装教程：下载后解压运行");
+        s1.metadata().put("file_name", "guide.txt");
+        storeManager.add(Embedding.from(v1), s1);
+
+        QueryEnhancementRouter router = mock(QueryEnhancementRouter.class);
+        when(router.route("怎么装", "rewrite")).thenReturn(List.of("安装教程"));
+
+        List<RetrievalPipeline.Source> sources =
+                enhancedPipeline(fixedVectorModel(v1), router).retrieve("怎么装", null);
+
+        assertThat(sources).hasSize(1);
+        assertThat(sources.get(0).text()).isEqualTo("安装教程：下载后解压运行");
+    }
+
+    @Test
+    void shouldFuseMultiVariantsAndRerank() {
+        // 行为变化①④：多变体融合（fuseN）后统一精排
+        when(reranker.isAvailable()).thenReturn(true);
+        float[] v = {0.5f, 0.5f};
+        storeManager.add(Embedding.from(v), TextSegment.from("变体命中"));
+        EmbeddingMatch<TextSegment> reranked = mock(EmbeddingMatch.class);
+        TextSegment seg = TextSegment.from("精排结果");
+        seg.metadata().put("file_name", "fused.txt");
+        when(reranked.embedded()).thenReturn(seg);
+        when(reranked.score()).thenReturn(0.9);
+        when(reranker.rerank(eq("原始问题"), anyList(), eq(5))).thenReturn(List.of(reranked));
+
+        QueryEnhancementRouter router = mock(QueryEnhancementRouter.class);
+        when(router.route(anyString(), eq("both"))).thenReturn(List.of("变体1", "变体2"));
+
+        // 配置默认模式设为 both（在 enhancedPipeline 打桩之后覆盖），使 route 桩真正命中、
+        // 多变体融合路径被真实执行
+        RetrievalPipeline pipeline = enhancedPipeline(fixedVectorModel(v), router);
+        when(enhConfig.getDefaultEnhancementMode()).thenReturn("both");
+        List<RetrievalPipeline.Source> sources = pipeline.retrieve("原始问题", null);
+
+        // 每个变体各检索一次（2 次 embed + search），精排结果成为 sources
+        verify(storeManager, times(2)).search(any(EmbeddingSearchRequest.class));
+        assertThat(sources).hasSize(1);
+        assertThat(sources.get(0).text()).isEqualTo("精排结果");
+        verify(reranker).rerank(eq("原始问题"), anyList(), eq(5));
+    }
+
+    @Test
+    void shouldPreferOverrideModeOverConfigDefault() {
+        float[] v = {0.5f, 0.5f};
+        storeManager.add(Embedding.from(v), TextSegment.from("命中"));
+        QueryEnhancementRouter router = mock(QueryEnhancementRouter.class);
+        when(router.route("q", "hyde")).thenReturn(List.of("假设文档"));
+
+        enhancedPipeline(fixedVectorModel(v), router)
+                .retrieve("q", new RetrievalPipeline.RetrievalOverrides("hyde", null));
+
+        verify(router).route("q", "hyde");
+    }
+
+    @Test
+    void shouldDefaultModeToNoneWhenConfigNull() {
+        float[] v = {0.5f, 0.5f};
+        storeManager.add(Embedding.from(v), TextSegment.from("命中"));
+        QueryEnhancementRouter router = mock(QueryEnhancementRouter.class);
+        when(router.route("q", "none")).thenReturn(List.of("q"));
+
+        RetrievalPipeline pipeline = enhancedPipeline(fixedVectorModel(v), router);
+        // 覆盖 enhancedPipeline 的默认桩：最后一次打桩生效，配置默认模式为 null
+        when(enhConfig.getDefaultEnhancementMode()).thenReturn(null);
+        pipeline.retrieve("q", null);
+
+        verify(router).route("q", "none");
+    }
 }

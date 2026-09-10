@@ -14,6 +14,7 @@ import me.maxt.rag.web.service.EmbeddingStoreManager;
 import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
 import me.maxt.rag.web.service.vector.rerank.Reranker;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -66,9 +67,24 @@ public class RetrievalPipeline {
         throw new UnsupportedOperationException("Task 4 落地");
     }
 
-    /** Task 2 实现。 */
-    private List<EmbeddingMatch<TextSegment>> recallViaEnhancement(String query, RetrievalOverrides o, boolean rerankOn) {
-        throw new UnsupportedOperationException("Task 2 落地");
+    /** E 通道：查询增强。单变体直接稠密检索；多变体逐变体检索后 fuseN 一次性融合。 */
+    private List<EmbeddingMatch<TextSegment>> recallViaEnhancement(String query,
+            RetrievalOverrides o, boolean rerankOn) {
+        String mode = o.enhancementMode() != null ? o.enhancementMode()
+                : deps.enhancementConfig().getDefaultEnhancementMode();
+        if (mode == null) {
+            mode = "none";
+        }
+        List<String> variants = deps.enhancementRouter().route(query, mode);
+        int depth = baseDepth(rerankOn);
+        if (variants.size() <= 1) {
+            return denseSearch(variants.isEmpty() ? query : variants.get(0), depth);
+        }
+        List<List<EmbeddingMatch<TextSegment>>> groups = new ArrayList<>();
+        for (String variant : variants) {
+            groups.add(denseSearch(variant, depth));
+        }
+        return RrfFusion.fuseN(groups, depth, deps.enhancementConfig().getRrfK());
     }
 
     /** 朴素/增强通道的候选池深度：精排可用时按扩展倍数放大。 */

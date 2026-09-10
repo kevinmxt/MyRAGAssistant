@@ -48,7 +48,7 @@ class MultiRecallRouterTest {
         );
 
         MultiRecallRouter router = new MultiRecallRouter(config, registry);
-        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of("dense", "sparse"));
+        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of("dense", "sparse"), 15);
 
         assertThat(result).hasSize(2);
         verify(denseStrategy).recall(eq("query"), anyInt());
@@ -74,7 +74,7 @@ class MultiRecallRouterTest {
                 Map.of("dense", denseStrategy));
 
         // "graph" 未注册，应被忽略
-        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of("dense", "graph"));
+        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of("dense", "graph"), 15);
 
         assertThat(result).hasSize(1);
         verify(denseStrategy).recall(eq("query"), anyInt());
@@ -107,7 +107,7 @@ class MultiRecallRouterTest {
         MultiRecallRouter router = new MultiRecallRouter(config, registry);
 
         // sparse 失败不影响 dense
-        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of("dense", "sparse"));
+        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of("dense", "sparse"), 15);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).embedded().text()).isEqualTo("ok");
@@ -131,9 +131,32 @@ class MultiRecallRouterTest {
         MultiRecallRouter router = new MultiRecallRouter(config,
                 Map.of("dense", denseStrategy));
 
-        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of());
+        List<EmbeddingMatch<TextSegment>> result = router.recall("query", List.of(), 15);
 
         assertThat(result).hasSize(1);
         verify(denseStrategy).recall(eq("query"), anyInt());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldPassDepthToStrategies() {
+        RecallConfig config = mock(RecallConfig.class);
+        when(config.getRecallModes()).thenReturn(List.of("dense"));
+        when(config.getRecallTopK()).thenReturn(5);
+        when(config.getRecallRrfK()).thenReturn(60);
+
+        RecallStrategy dense = mock(RecallStrategy.class);
+        when(dense.name()).thenReturn("dense");
+        EmbeddingMatch<TextSegment> match = mock(EmbeddingMatch.class);
+        when(match.embedded()).thenReturn(TextSegment.from("r"));
+        when(match.score()).thenReturn(0.9);
+        when(dense.recall(eq("query"), eq(15))).thenReturn(List.of(match));
+
+        MultiRecallRouter router = new MultiRecallRouter(config, Map.of("dense", dense));
+
+        router.recall("query", List.of("dense"), 15);
+
+        // 深度由调用方传入，router 不再自行探测 RerankConfig
+        verify(dense).recall(eq("query"), eq(15));
     }
 }

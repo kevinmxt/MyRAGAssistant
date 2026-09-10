@@ -156,7 +156,10 @@ public class RAGService {
             // 多路召回启用：按指定模式（或配置默认模式）并行召回 + RRF 融合，
             // 替代原有 searchAndCollect 检索逻辑
             List<String> modes = recallModes != null ? recallModes : recallConfig.getRecallModes();
-            List<EmbeddingMatch<TextSegment>> matches = multiRecallRouter.recall(query, modes);
+            // 临时沿用 instanceof 计算召回深度，保证旧 RAGService 在 Task 5 删除前行为不变
+            int expansion = (config instanceof RerankConfig rc) ? rc.getRerankExpansionFactor() : 3;
+            List<EmbeddingMatch<TextSegment>> matches =
+                    multiRecallRouter.recall(query, modes, recallConfig.getRecallTopK() * expansion);
             matches = rerankIfAvailable(query, matches);
             sources = matches.stream()
                     .map(this::toSource)

@@ -74,7 +74,7 @@ class MultiRecallRouterIT {
         // 只注册 dense，验证路由编排逻辑
         MultiRecallRouter router = new MultiRecallRouter(config,
                 Map.of("dense", denseMock()));
-        List<EmbeddingMatch<TextSegment>> result = router.recall("test", List.of("dense"));
+        List<EmbeddingMatch<TextSegment>> result = router.recall("test", List.of("dense"), config.getRecallTopK() * 3);
 
         assertThat(result).isEmpty(); // mock 返回空
     }
@@ -85,7 +85,7 @@ class MultiRecallRouterIT {
         MultiRecallRouter router = new MultiRecallRouter(config, Map.of());
 
         // 请求不存在的策略，应该安全返回空
-        List<EmbeddingMatch<TextSegment>> result = router.recall("test", List.of("nonexistent"));
+        List<EmbeddingMatch<TextSegment>> result = router.recall("test", List.of("nonexistent"), config.getRecallTopK() * 3);
 
         assertThat(result).isEmpty();
     }
@@ -97,7 +97,7 @@ class MultiRecallRouterIT {
                 Map.of("dense", denseWithResult(), "sparse", brokenSparse()));
 
         // sparse 异常不影响 dense，降级后仍返回 dense 结果
-        List<EmbeddingMatch<TextSegment>> result = router.recall("test", List.of("dense", "sparse"));
+        List<EmbeddingMatch<TextSegment>> result = router.recall("test", List.of("dense", "sparse"), config.getRecallTopK() * 3);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).embedded().text()).isEqualTo("dense result");

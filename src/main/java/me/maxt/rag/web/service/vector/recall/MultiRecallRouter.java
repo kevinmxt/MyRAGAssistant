@@ -29,13 +29,16 @@ public class MultiRecallRouter {
         this.strategyRegistry = strategyRegistry;
     }
 
-    public List<EmbeddingMatch<TextSegment>> recall(String query, List<String> modes) {
+    /**
+     * 多路召回入口。
+     *
+     * @param query           用户查询
+     * @param modes           召回模式列表（空/null 时回退到配置默认模式）
+     * @param perStrategyTopK 每路召回深度，由调用方按"最终 topK × 精排扩展倍数"算好传入
+     * @return 单路时 limit recallTopK，多路时 RRF 融合上限 perStrategyTopK
+     */
+    public List<EmbeddingMatch<TextSegment>> recall(String query, List<String> modes, int perStrategyTopK) {
         List<String> effectiveModes = resolveModes(modes);
-        int expansionFactor = 3;
-        if (config instanceof me.maxt.rag.web.config.RerankConfig rc) {
-            expansionFactor = rc.getRerankExpansionFactor();
-        }
-        int perStrategyTopK = config.getRecallTopK() * expansionFactor;
 
         // 并行调用各策略：总延迟 = max(各路延迟)，单路失败/超时不影响其他路
         List<CompletableFuture<List<EmbeddingMatch<TextSegment>>>> futures = effectiveModes.stream()

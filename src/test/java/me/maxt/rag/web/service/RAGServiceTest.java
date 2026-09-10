@@ -192,7 +192,7 @@ class RAGServiceTest {
         when(recalled.score()).thenReturn(0.9);
 
         MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
-        when(mockRouter.recall(anyString(), anyList())).thenReturn(List.of(recalled));
+        when(mockRouter.recall(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
         RecallConfig mockRecallConfig = mock(RecallConfig.class);
         when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
         when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
@@ -227,7 +227,7 @@ class RAGServiceTest {
         when(recalled.score()).thenReturn(0.8);
 
         MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
-        when(mockRouter.recall(anyString(), anyList())).thenReturn(List.of(recalled));
+        when(mockRouter.recall(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
         RecallConfig mockRecallConfig = mock(RecallConfig.class);
         when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
         when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
@@ -260,7 +260,7 @@ class RAGServiceTest {
         when(recalled.score()).thenReturn(0.8);
 
         MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
-        when(mockRouter.recall(anyString(), anyList())).thenReturn(List.of(recalled));
+        when(mockRouter.recall(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
         RecallConfig mockRecallConfig = mock(RecallConfig.class);
         when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
         when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));

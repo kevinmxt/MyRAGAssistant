@@ -252,4 +252,82 @@ class RetrievalPipelineTest {
 
         verify(router).route("q", "none");
     }
+
+    // ===== M 通道 =====
+
+    private MultiRecallRouter mockRouter;
+
+    private RetrievalPipeline multiRecallPipeline(EmbeddingModel embeddingModel) {
+        when(recallConfig.isMultiRecallEnabled()).thenReturn(true);
+        when(recallConfig.getRecallTopK()).thenReturn(5);
+        when(recallConfig.getRecallModes()).thenReturn(List.of("dense"));
+        mockRouter = mock(MultiRecallRouter.class);
+        return new RetrievalPipeline(new RetrievalPipeline.Deps(
+                storeManager, embeddingModel, retrievalConfig,
+                mock(QueryEnhancementRouter.class), enhConfig,
+                mockRouter, recallConfig,
+                reranker, rerankConfig));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldRecallViaMultiRecallWithExpandedDepth() {
+        when(reranker.isAvailable()).thenReturn(true);
+        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
+        TextSegment seg = TextSegment.from("多路召回候选");
+        seg.metadata().put("file_name", "m.txt");
+        when(recalled.embedded()).thenReturn(seg);
+        when(recalled.score()).thenReturn(0.9);
+        // 先构造管线（内部给 mockRouter 赋值）再对 router 打桩
+        RetrievalPipeline pipeline = multiRecallPipeline(fixedVectorModel(new float[]{0.5f}));
+        when(mockRouter.recall(eq("q"), anyList(), eq(15))).thenReturn(List.of(recalled));  // 5×3
+        when(reranker.rerank(eq("q"), anyList(), eq(5))).thenReturn(List.of(recalled));
+
+        List<RetrievalPipeline.Source> sources = pipeline.retrieve("q", null);
+
+        assertThat(sources).hasSize(1);
+        assertThat(sources.get(0).text()).isEqualTo("多路召回候选");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldPreferMultiRecallOverEnhancement() {
+        // M 与 E 同时启用时走 M（通道优先级）
+        when(enhConfig.isQueryEnhancementEnabled()).thenReturn(true);
+        when(reranker.isAvailable()).thenReturn(false);
+        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
+        TextSegment seg = TextSegment.from("m 优先");
+        seg.metadata().put("file_name", "m.txt");
+        when(recalled.embedded()).thenReturn(seg);
+        when(recalled.score()).thenReturn(0.8);
+        RetrievalPipeline pipeline = multiRecallPipeline(fixedVectorModel(new float[]{0.5f}));
+        // 覆盖 helper 的 recallTopK 桩（最后一次打桩生效）：深度不扩时应为 4
+        when(recallConfig.getRecallTopK()).thenReturn(4);
+        when(mockRouter.recall(eq("q"), anyList(), anyInt())).thenReturn(List.of(recalled));
+
+        List<RetrievalPipeline.Source> sources = pipeline.retrieve("q", null);
+
+        assertThat(sources).hasSize(1);
+        assertThat(sources.get(0).text()).isEqualTo("m 优先");
+        // 精排不可用：深度不扩（=recallTopK=4），终裁 limit recallTopK
+        verify(mockRouter).recall(eq("q"), anyList(), eq(4));
+        verify(reranker, never()).rerank(anyString(), anyList(), anyInt());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldPreferOverrideRecallModes() {
+        when(reranker.isAvailable()).thenReturn(false);
+        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
+        TextSegment seg = TextSegment.from("指定模式");
+        seg.metadata().put("file_name", "m.txt");
+        when(recalled.embedded()).thenReturn(seg);
+        when(recalled.score()).thenReturn(0.8);
+        RetrievalPipeline pipeline = multiRecallPipeline(fixedVectorModel(new float[]{0.5f}));
+        when(mockRouter.recall(eq("q"), eq(List.of("sparse")), anyInt())).thenReturn(List.of(recalled));
+
+        pipeline.retrieve("q", new RetrievalPipeline.RetrievalOverrides(null, List.of("sparse")));
+
+        verify(mockRouter).recall(eq("q"), eq(List.of("sparse")), anyInt());
+    }
 }

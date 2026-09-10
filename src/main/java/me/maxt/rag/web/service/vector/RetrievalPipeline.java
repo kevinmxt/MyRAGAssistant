@@ -54,17 +54,22 @@ public class RetrievalPipeline {
 
     private List<EmbeddingMatch<TextSegment>> recallPool(String query, RetrievalOverrides o, boolean rerankOn) {
         if (deps.recallConfig().isMultiRecallEnabled()) {
-            return recallViaMultiRecall(query, o, rerankOn);   // Task 4 落地
+            return recallViaMultiRecall(query, o, rerankOn);
         }
         if (deps.enhancementConfig().isQueryEnhancementEnabled()) {
-            return recallViaEnhancement(query, o, rerankOn);   // Task 2 落地
+            return recallViaEnhancement(query, o, rerankOn);
         }
         return denseSearch(query, baseDepth(rerankOn));
     }
 
-    /** Task 4 实现；本任务先抛不支持，保证未被配置启用的路径不可达。 */
-    private List<EmbeddingMatch<TextSegment>> recallViaMultiRecall(String query, RetrievalOverrides o, boolean rerankOn) {
-        throw new UnsupportedOperationException("Task 4 落地");
+    /** M 通道：多路召回。深度 = recallTopK ×（精排可用 ? 扩展倍数 : 1），由管线算好传给 router。 */
+    private List<EmbeddingMatch<TextSegment>> recallViaMultiRecall(String query,
+            RetrievalOverrides o, boolean rerankOn) {
+        int depth = deps.recallConfig().getRecallTopK()
+                * (rerankOn ? deps.rerankConfig().getRerankExpansionFactor() : 1);
+        List<String> modes = o.recallModes() != null ? o.recallModes()
+                : deps.recallConfig().getRecallModes();
+        return deps.multiRecallRouter().recall(query, modes, depth);
     }
 
     /** E 通道：查询增强。单变体直接稠密检索；多变体逐变体检索后 fuseN 一次性融合。 */

@@ -125,7 +125,7 @@ LLM 回复首句两次提到"问题似乎有乱码"：Windows curl `-d` 以本�
 
 因此持平的确切含义是：**统一管线迁移在评估确定性配置下检索质量零回归**（5 格式 recall/MRR/NDCG 逐位一致，"对比基线未退化"）。真实环境（精排可用 + 增强开启）的行为变化由 `RetrievalPipelineTest` 13 个用例以 mock 精排器锁定，其中本次 DEGRADED 冒烟的"降级精排下截断到 maxResults"路径在三次请求中均可观察（sources 恒为 3 = maxResults）。
 
-## 四、行为变化 4 项实际观察
+## 四、行为变化 5 项实际观察
 
 | # | 行为变化 | 观察渠道 | 结果 |
 |---|----------|----------|------|
@@ -133,6 +133,7 @@ LLM 回复首句两次提到"问题似乎有乱码"：Windows curl `-d` 以本�
 | ② | E 多变体候选池 2×→3×（expansionFactor 默认 3） | `RetrievalPipelineTest`（多变体融合后统一精排）；评估不进入 E 通道 | 单测锁定 ✅ |
 | ③ | E 多变体不可用分支裁剪 recallTopK→maxResults（bug 修复） | `RetrievalPipelineTest`（不可用截断到 maxResults）；冒烟 3 请求 sources 恒 3 条 | 单测锁定 ✅ + 冒烟可观察 ✅ |
 | ④ | 融合算法两两折叠→fuseN 一次性 N 路 | `RetrievalPipelineTest` + `RrfFusionTest`（N 路）；冒烟请求 1（auto→rewrite 变体路径）走通 | 单测锁定 ✅ + 冒烟路径走通 ✅ |
+| ⑤ | 精排不可用路径召回深度缩小：M 通道每路 ×3→×1、E 多变体每变体 ×2→×1（终审发现、有意设计——"池仅精排可用时扩展"省白搜，RRF k=60 下 rank>topK 候选得分 ≤1/66） | `RetrievalPipelineTest`：shouldPreferMultiRecallOverEnhancement 断言 M 深度 eq(4)=recallTopK（精排不可用不扩池）；shouldLimitToMaxResultsWhenRerankerUnavailable 断言截断 2=maxResults | 终审 diff 复核 + 单测断言 ✅（未跑运行时数字，不伪造） |
 
 ## 五、遗留问题
 

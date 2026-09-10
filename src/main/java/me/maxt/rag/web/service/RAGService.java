@@ -32,6 +32,8 @@ public class RAGService {
     private final Assistant assistant;
 
     /**
+     * 创建 RAG 对话门面。
+     *
      * @param pipeline  检索管线（唯一事实源）
      * @param chatModel 聊天模型
      * @param config    检索配置（取记忆窗口大小）

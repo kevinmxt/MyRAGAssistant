@@ -33,6 +33,11 @@ public class RetrievalPipeline {
 
     private final Deps deps;
 
+    /**
+     * 创建检索管线。
+     *
+     * @param deps 完整依赖集合，全部字段必非 null
+     */
     public RetrievalPipeline(Deps deps) {
         this.deps = deps;
     }

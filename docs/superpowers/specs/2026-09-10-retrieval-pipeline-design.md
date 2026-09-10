@@ -109,7 +109,7 @@ public RAGService(RetrievalPipeline pipeline, ChatModel chatModel, RetrievalConf
 
 | 通道 | 候选池现状 | 候选池新值（精排可用时） | 精排不可用时终裁 |
 |------|-----------|------------------------|-----------------|
-| M 多路召回 | recallTopK×3 | recallTopK×expansion（不变） | limit recallTopK（不变） |
+| M 多路召回 | recallTopK×3 | recallTopK×expansion（勘误：原记"不变"仅精排可用时成立；不可用时池深为 recallTopK×1，旧行为恒 ×3，见行为变化 ⑤） | limit recallTopK（不变） |
 | E 多变体 | maxResults×2 | ★ maxResults×expansion（默认 3，池变大） | ★ limit maxResults（现状误用 recallTopK 裁剪，属 bug 修复） |
 | E 单变体 / P | maxResults，从不精排 | ★ maxResults×expansion → rerank → rerankTopK | limit maxResults |
 
@@ -169,12 +169,13 @@ if (skipAnswerQuality || !answerQualityEvaluator.isAvailable()) {
 
 测试总数从 158 变化（迁移约 7 个 + 新增若干），以最终 `mvn test` 全绿为准。
 
-## 行为变化清单（4 项）
+## 行为变化清单（5 项）
 
 1. 单变体/朴素路径精排生效（决策 1）
 2. E 多变体候选池 2×→3×（expansionFactor 默认值）
 3. E 多变体不可用分支裁剪 recallTopK→maxResults（bug 修复）
 4. 融合算法两两折叠→`fuseN` 一次性 N 路（排名细节微差）
+5. 精排不可用时召回深度缩小：M 通道每路深度 recallTopK×expansionFactor→recallTopK、E 多变体每变体 maxResults×2→maxResults（旧行为恒扩池，与精排可用性无关；新设计"池仅精排可用时扩展"是省白搜的有意取舍，RRF k=60 下 rank>topK 候选得分 ≤1/66，翻盘概率极低）。根因：旧 MultiRecallRouter 内部恒 ×3（不感知精排可用性），上文深度表 M 行"（不变）"只对终裁条数成立、对池深度不成立——该项为终审发现，登记于本清单
 
 ①②④ 会反映到评估基线数字；交付时重建基线并记录对比。
 

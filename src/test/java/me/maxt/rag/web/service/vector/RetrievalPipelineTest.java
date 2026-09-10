@@ -66,6 +66,7 @@ class RetrievalPipelineTest {
                 reranker, rerankConfig));
     }
 
+    @SuppressWarnings("unchecked")
     private EmbeddingModel fixedVectorModel(float[] vector) {
         EmbeddingModel model = mock(EmbeddingModel.class);
         Response<Embedding> resp = mock(Response.class);

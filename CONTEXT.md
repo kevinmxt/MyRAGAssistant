@@ -24,6 +24,16 @@
 
 *避免叫*：ModelDownloader（只表达下载，丢失"存在性 + 状态"语义）、ModelManager（"Manager"空泛）。
 
+### 检索管线（RetrievalPipeline）
+
+系统**唯一检索事实源**：对外单一入口 `retrieve(query, overrides)`，内部按覆盖参数选通道——P（朴素稠密检索）、E（查询增强，单变体单路 / 多变体 RRF 融合）、M（多路召回）——三通道殊途同归到**统一后处理**（精排可用时精排取 rerankTopK，不可用时截断到 maxResults）。
+
+- 通道是**内部接缝**：调用方（对话门面 RAGService、评估管线）只传 `RetrievalOverrides`（enhancement / recall），不感知通道实现与选择逻辑。
+- 候选池**仅在精排可用时扩展**（×expansionFactor）：不可用时 ×1 直接截断——稠密检索天然有序，扩了不裁等于白搜。
+- LLM 上下文与前端展示的 sources 恒等：`RAGService` 卸下 contentRetriever，answer 由 `composePrompt(query, sources)` 显式携带参考资料生成，无双轨检索。
+
+*避免叫*：RetrievalService（不表达"编排"）、SearchOrchestrator（丢"检索增强"语义）。
+
 ## 相关决策
 
 - `docs/adr/0001-sparse-recall-no-late-registration.md` — 重连后 sparse 召回不自动恢复（推迟）

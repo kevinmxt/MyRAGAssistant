@@ -1,7 +1,7 @@
 {
   "format" : "docx",
   "version" : "1.0",
-  "timestamp" : "2026-08-10T15:52:33",
+  "timestamp" : "2026-09-10T20:06:11",
   "type" : "baseline",
   "metrics" : {
     "recallAtK" : {

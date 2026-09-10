@@ -10,9 +10,15 @@ import dev.langchain4j.model.output.Response;
 import dev.langchain4j.model.output.TokenUsage;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import me.maxt.rag.web.config.AppConfig;
+import me.maxt.rag.web.config.QueryEnhancementConfig;
+import me.maxt.rag.web.config.RecallConfig;
 import me.maxt.rag.web.service.EmbeddingStoreManager;
 import me.maxt.rag.web.service.RAGService;
 import me.maxt.rag.web.service.evaluation.*;
+import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
+import me.maxt.rag.web.service.vector.RetrievalPipeline;
+import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
+import me.maxt.rag.web.service.vector.rerank.Reranker;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -80,7 +86,20 @@ class EvaluationTest {
             dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<dev.langchain4j.data.segment.TextSegment> store =
                     new dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<>();
             EmbeddingStoreManager storeManager = new EmbeddingStoreManager(() -> store);
-            RAGService ragService = new RAGService(appConfig, storeManager, embeddingModel, chatModel);
+            // 禁用增强/多路召回/精排的桩 pipeline——等价旧 4 参构造的"朴素检索"语义
+            QueryEnhancementConfig disabledEnh = mock(QueryEnhancementConfig.class);
+            when(disabledEnh.isQueryEnhancementEnabled()).thenReturn(false);
+            RecallConfig disabledRecall = mock(RecallConfig.class);
+            when(disabledRecall.isMultiRecallEnabled()).thenReturn(false);
+            Reranker unavailableReranker = mock(Reranker.class);
+            when(unavailableReranker.isAvailable()).thenReturn(false);
+            MultiRecallRouter emptyRouter = new MultiRecallRouter(disabledRecall, java.util.Map.of());
+            RetrievalPipeline retrievalPipeline = new RetrievalPipeline(new RetrievalPipeline.Deps(
+                    storeManager, embeddingModel, appConfig,
+                    mock(QueryEnhancementRouter.class), disabledEnh,
+                    emptyRouter, disabledRecall,
+                    unavailableReranker, appConfig));
+            RAGService ragService = new RAGService(retrievalPipeline, chatModel, appConfig);
             KnowledgeBaseSeeder seeder = new KnowledgeBaseSeeder(storeManager, embeddingModel, appConfig, null);
 
             EvaluationPipeline pipeline = new EvaluationPipeline(appConfig, datasetLoader, seeder,

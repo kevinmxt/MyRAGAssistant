@@ -29,6 +29,7 @@ import me.maxt.rag.web.service.vector.MilvusSession;
 import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
 import me.maxt.rag.web.service.vector.QueryRewriter;
 import me.maxt.rag.web.service.vector.RealMilvusConnector;
+import me.maxt.rag.web.service.vector.RetrievalPipeline;
 import me.maxt.rag.web.service.vector.recall.DenseRecallStrategy;
 import me.maxt.rag.web.service.vector.recall.GraphRecallStrategy;
 import me.maxt.rag.web.service.vector.recall.LightRagBridge;
@@ -70,7 +71,7 @@ public class WebApplication {
     private final ChatController chatController;
     private final DocumentController documentController;
 
-    // 多路召回组件（仅 config.isMultiRecallEnabled() 时非 null）
+    // 多路召回组件（是否启用由 RecallConfig.isMultiRecallEnabled 表达）
     private final MultiRecallRouter multiRecallRouter;
     private final KnowledgeGraphService kgService;
     private final KnowledgeGraphController kgController;
@@ -172,9 +173,6 @@ public class WebApplication {
         QueryEnhancementRouter enhancementRouter = new QueryEnhancementRouter(
                 queryRewriter, hydeGenerator, chatModel, config);
 
-        // 多路召回组件组装（条件启用）
-        MultiRecallRouter multiRecallRouter = null;
-
         // 知识图谱 — 独立于多路召回，始终初始化（非阻塞，失败降级不影响主流程）
         LightRagBridge lightRagBridge = new LightRagBridge(
                 config.getLightRagPythonPath(), config.getLightRagWorkingDir(),
@@ -198,19 +196,17 @@ public class WebApplication {
                 config, storeManager, milvusSession::nativeClient, lightRagBridge);
         KnowledgeGraphController kgController = new KnowledgeGraphController(kgService);
 
-        if (config.isMultiRecallEnabled()) {
-            Map<String, RecallStrategy> registry = new LinkedHashMap<>();
-            registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
-            if (milvusSession.nativeClient() != null) {
-                registry.put("sparse", new SparseRecallStrategy(
-                        milvusSession::nativeClient, config.getMilvusCollectionName()));
-            }
-            registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
-                    config.getLightRagQueryMode()));
-            multiRecallRouter = new MultiRecallRouter(config, registry);
+        // 多路召回：总是构造（是否启用由 RecallConfig.isMultiRecallEnabled 表达）
+        Map<String, RecallStrategy> registry = new LinkedHashMap<>();
+        registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
+        if (milvusSession.nativeClient() != null) {
+            registry.put("sparse", new SparseRecallStrategy(
+                    milvusSession::nativeClient, config.getMilvusCollectionName()));
         }
+        registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
+                config.getLightRagQueryMode()));
+        this.multiRecallRouter = new MultiRecallRouter(config, registry);
 
-        this.multiRecallRouter = multiRecallRouter;
         this.kgService = kgService;
         this.kgController = kgController;
 
@@ -232,8 +228,13 @@ public class WebApplication {
             crossEncoderReranker.loadIfPresent();
         }
 
-        this.ragService = new RAGService(config, storeManager, embeddingModel, chatModel,
-                enhancementRouter, config, multiRecallRouter, config, reranker);
+        // 检索管线（唯一事实源）+ 对话门面
+        RetrievalPipeline retrievalPipeline = new RetrievalPipeline(new RetrievalPipeline.Deps(
+                storeManager, embeddingModel, config,
+                enhancementRouter, config,
+                multiRecallRouter, config,
+                crossEncoderReranker, config));
+        this.ragService = new RAGService(retrievalPipeline, chatModel, config);
 
         // ContextualEnricher：嵌入前用 LLM 为每个 chunk 添加上下文
         ContextualEnricher contextualEnricher = new ContextualEnricher();

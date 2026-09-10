@@ -1,282 +1,98 @@
 package me.maxt.rag.web.service;
 
-import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
-import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.output.Response;
 import dev.langchain4j.model.output.TokenUsage;
-import dev.langchain4j.store.embedding.EmbeddingMatch;
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
-import me.maxt.rag.web.config.QueryEnhancementConfig;
-import me.maxt.rag.web.config.RecallConfig;
 import me.maxt.rag.web.config.RetrievalConfig;
-import me.maxt.rag.web.service.vector.QueryEnhancementRouter;
-import me.maxt.rag.web.service.vector.recall.MultiRecallRouter;
-import me.maxt.rag.web.service.vector.rerank.Reranker;
+import me.maxt.rag.web.service.vector.RetrievalPipeline;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RAGServiceTest {
 
-    private EmbeddingStoreManager storeManager;
-    private RetrievalConfig config;
     private ChatModel chatModel;
+    private RetrievalPipeline pipeline;
+    private RetrievalConfig config;
 
     @BeforeEach
     void setUp() {
-        InMemoryEmbeddingStore<TextSegment> store = new InMemoryEmbeddingStore<>();
-        storeManager = new EmbeddingStoreManager(() -> store);
         config = mock(RetrievalConfig.class);
-        when(config.getMaxResults()).thenReturn(3);
-        when(config.getMinScore()).thenReturn(0.5);
         when(config.getMemorySize()).thenReturn(10);
 
-        // Build a complete ChatModel mock that AiServices can use
         chatModel = mock(ChatModel.class);
         ChatResponseMetadata metadata = ChatResponseMetadata.builder()
-                .tokenUsage(new TokenUsage(10, 10))
-                .build();
+                .tokenUsage(new TokenUsage(10, 10)).build();
         ChatResponse chatResponse = ChatResponse.builder()
                 .aiMessage(AiMessage.from("stub answer"))
-                .metadata(metadata)
-                .build();
+                .metadata(metadata).build();
         when(chatModel.chat(any(ChatRequest.class))).thenReturn(chatResponse);
+
+        pipeline = mock(RetrievalPipeline.class);
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void shouldRetrieveCorrectSources() {
-        // Add documents to store
-        float[] v1 = {0.5f, 0.5f, 0.5f};
-        TextSegment s1 = TextSegment.from("Paris is the capital of France.");
-        s1.metadata().put("file_name", "facts.txt");
-        storeManager.add(Embedding.from(v1), s1);
+    void shouldComposePromptWithReferenceMaterials() {
+        when(pipeline.retrieve(eq("问题"), any())).thenReturn(List.of(
+                new RetrievalPipeline.Source("a.txt", "资料甲", 0.9),
+                new RetrievalPipeline.Source("b.txt", "资料乙", 0.8)));
 
-        float[] v2 = {-0.5f, -0.5f, -0.5f};
-        TextSegment s2 = TextSegment.from("London is the capital of UK.");
-        s2.metadata().put("file_name", "geo.txt");
-        s2.metadata().put("absolute_directory_path", "/docs");
-        storeManager.add(Embedding.from(v2), s2);
+        RAGService service = new RAGService(pipeline, chatModel, config);
+        RAGService.AnswerWithSources result = service.answerWithSources("问题");
 
-        // Mock embedding model to return the query vector that matches v1 best
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(v1));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
-
-
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel);
-        RAGService.AnswerWithSources result = service.answerWithSources("What is the capital of France?");
-
-        assertThat(result.sources).hasSize(1);
-        assertThat(result.sources.get(0).text).isEqualTo("Paris is the capital of France.");
-        assertThat(result.sources.get(0).score).isGreaterThan(0.9);
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void shouldReturnEmptySourcesWhenNoRelevantDocs() {
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(new float[]{1.0f, 0.0f, 0.0f}));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
-
-
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel);
-        RAGService.AnswerWithSources result = service.answerWithSources("random question");
-
-        assertThat(result.answer).isNotNull();
-        assertThat(result.sources).isEmpty();
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void shouldIncludeFileNameInSourceMetadata() {
-        float[] vector = {0.3f, 0.3f, 0.3f};
-        TextSegment segment = TextSegment.from("water boils at 100 degrees.");
-        segment.metadata().put("file_name", "science.txt");
-        storeManager.add(Embedding.from(vector), segment);
-
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(vector));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
-
-
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel);
-        RAGService.AnswerWithSources result = service.answerWithSources("boiling point of water");
-
-        assertThat(result.sources).hasSize(1);
-        assertThat(result.sources.get(0).fileName).contains("science.txt");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void shouldRespectMaxResultsLimit() {
-        // Add 5 documents
-        for (int i = 0; i < 5; i++) {
-            TextSegment seg = TextSegment.from("doc " + i);
-            storeManager.add(Embedding.from(new float[]{0.5f, 0.5f}), seg);
-        }
-        when(config.getMaxResults()).thenReturn(2);
-
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(new float[]{0.5f, 0.5f}));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
-
-
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel);
-        RAGService.AnswerWithSources result = service.answerWithSources("query");
-
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatModel).chat(captor.capture());
+        String prompt = lastMessageText(captor.getValue());
+        assertThat(prompt).contains("参考资料");
+        assertThat(prompt).contains("[1] 资料甲");
+        assertThat(prompt).contains("[2] 资料乙");
+        assertThat(prompt).contains("问题：问题");
+        assertThat(result.answer).isEqualTo("stub answer");
         assertThat(result.sources).hasSize(2);
+        assertThat(result.sources.get(0).fileName()).isEqualTo("a.txt");
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void shouldUseQueryEnhancementWhenEnabled() {
-        // Add document
-        float[] v1 = {0.5f, 0.5f, 0.5f, 0.5f};
-        TextSegment s1 = TextSegment.from("安装教程：下载后解压运行");
-        s1.metadata().put("file_name", "guide.txt");
-        storeManager.add(Embedding.from(v1), s1);
+    void shouldFallbackWhenNoSources() {
+        when(pipeline.retrieve(anyString(), any())).thenReturn(List.of());
 
-        // Mock embedding model
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(v1));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
+        RAGService service = new RAGService(pipeline, chatModel, config);
+        RAGService.AnswerWithSources result = service.answerWithSources("问题");
 
-        // Mock Router — return a rewritten query
-        QueryEnhancementRouter mockRouter = mock(QueryEnhancementRouter.class);
-        when(mockRouter.route("怎么装", "rewrite")).thenReturn(List.of("安装教程"));
-
-        QueryEnhancementConfig mockEnhConfig = mock(QueryEnhancementConfig.class);
-        when(mockEnhConfig.isQueryEnhancementEnabled()).thenReturn(true);
-        when(mockEnhConfig.getDefaultEnhancementMode()).thenReturn("rewrite");
-
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
-                mockRouter, mockEnhConfig);
-        RAGService.AnswerWithSources result = service.answerWithSources("怎么装", "rewrite");
-
-        assertThat(result.sources).hasSize(1);
-        assertThat(result.sources.get(0).text).isEqualTo("安装教程：下载后解压运行");
+        assertThat(result.answer).isEqualTo("stub answer");
+        assertThat(result.sources).isEmpty();
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatModel).chat(captor.capture());
+        String prompt = lastMessageText(captor.getValue());
+        assertThat(prompt).contains("（无参考资料）");
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void shouldCallRerankerWhenAvailable() {
-        // 召回候选（由 MultiRecallRouter 返回）
-        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
-        TextSegment seg = TextSegment.from("reranked candidate");
-        seg.metadata().put("file_name", "rerank.txt");
-        when(recalled.embedded()).thenReturn(seg);
-        when(recalled.score()).thenReturn(0.9);
+    void shouldPassOverridesThrough() {
+        when(pipeline.retrieve(anyString(), any())).thenReturn(List.of());
 
-        MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
-        when(mockRouter.recall(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
-        RecallConfig mockRecallConfig = mock(RecallConfig.class);
-        when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
-        when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
+        RAGService service = new RAGService(pipeline, chatModel, config);
+        service.answerWithSources("q", "hyde", List.of("dense"));
 
-        // 可用的 Reranker：返回精排后的结果
-        Reranker mockReranker = mock(Reranker.class);
-        when(mockReranker.isAvailable()).thenReturn(true);
-        when(mockReranker.rerank(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
-
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(new float[]{0.5f, 0.5f}));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
-
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
-                null, null, mockRouter, mockRecallConfig, mockReranker);
-        RAGService.AnswerWithSources result = service.answerWithSources("test query");
-
-        // rerank() 必须被调用，且精排结果被映射为 sources
-        verify(mockReranker).rerank(eq("test query"), anyList(), anyInt());
-        assertThat(result.sources).hasSize(1);
-        assertThat(result.sources.get(0).text).isEqualTo("reranked candidate");
+        verify(pipeline).retrieve(eq("q"), eq(new RetrievalPipeline.RetrievalOverrides("hyde", List.of("dense"))));
     }
 
-    @Test
-    @SuppressWarnings("unchecked")
-    void shouldSkipRerankWhenNotAvailable() {
-        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
-        TextSegment seg = TextSegment.from("recalled candidate");
-        seg.metadata().put("file_name", "recall.txt");
-        when(recalled.embedded()).thenReturn(seg);
-        when(recalled.score()).thenReturn(0.8);
-
-        MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
-        when(mockRouter.recall(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
-        RecallConfig mockRecallConfig = mock(RecallConfig.class);
-        when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
-        when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
-
-        // 不可用的 Reranker：不应被调用，召回结果原样返回
-        Reranker mockReranker = mock(Reranker.class);
-        when(mockReranker.isAvailable()).thenReturn(false);
-
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(new float[]{0.5f, 0.5f}));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
-
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
-                null, null, mockRouter, mockRecallConfig, mockReranker);
-        RAGService.AnswerWithSources result = service.answerWithSources("test query");
-
-        verify(mockReranker, never()).rerank(anyString(), anyList(), anyInt());
-        assertThat(result.sources).hasSize(1);
-        assertThat(result.sources.get(0).text).isEqualTo("recalled candidate");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void shouldNotFailWhenRerankerIsNull() {
-        EmbeddingMatch<TextSegment> recalled = mock(EmbeddingMatch.class);
-        TextSegment seg = TextSegment.from("legacy candidate");
-        seg.metadata().put("file_name", "legacy.txt");
-        when(recalled.embedded()).thenReturn(seg);
-        when(recalled.score()).thenReturn(0.8);
-
-        MultiRecallRouter mockRouter = mock(MultiRecallRouter.class);
-        when(mockRouter.recall(anyString(), anyList(), anyInt())).thenReturn(List.of(recalled));
-        RecallConfig mockRecallConfig = mock(RecallConfig.class);
-        when(mockRecallConfig.isMultiRecallEnabled()).thenReturn(true);
-        when(mockRecallConfig.getRecallModes()).thenReturn(List.of("dense"));
-
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        Response<Embedding> embedResp = mock(Response.class);
-        when(embedResp.content()).thenReturn(Embedding.from(new float[]{0.5f, 0.5f}));
-        when(embeddingModel.embed(anyString())).thenReturn(embedResp);
-
-        // 8-param 构造器（无 reranker 参数）：旧构造器兼容性，不应 NPE
-        RAGService service = new RAGService(config, storeManager, embeddingModel, chatModel,
-                null, null, mockRouter, mockRecallConfig);
-        RAGService.AnswerWithSources result = service.answerWithSources("test query");
-
-        assertThat(result.answer).isNotNull();
-        assertThat(result.sources).hasSize(1);
-        assertThat(result.sources.get(0).text).isEqualTo("legacy candidate");
+    /** 取请求中最后一条消息的文本（langchain4j 1.12.1：ChatMessage 接口无 text()，UserMessage 有 singleText()）。 */
+    private static String lastMessageText(ChatRequest request) {
+        return ((UserMessage) request.messages().get(request.messages().size() - 1)).singleText();
     }
 }

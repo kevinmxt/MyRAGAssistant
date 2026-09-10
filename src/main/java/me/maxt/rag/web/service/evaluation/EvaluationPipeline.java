@@ -81,10 +81,10 @@ public class EvaluationPipeline {
             // 4a. 调 RAGService 实时生成答案
             AnswerWithSources result = ragService.answerWithSources(tc.query());
             List<String> retrievedDocNames = result.sources.stream()
-                    .map(s -> s.fileName)
+                    .map(s -> s.fileName())
                     .toList();
             List<String> contexts = result.sources.stream()
-                    .map(s -> s.text)
+                    .map(s -> s.text())
                     .toList();
 
             // 4b. 检索指标

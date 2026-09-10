@@ -103,7 +103,8 @@ class EvaluationTest {
             KnowledgeBaseSeeder seeder = new KnowledgeBaseSeeder(storeManager, embeddingModel, appConfig, null);
 
             EvaluationPipeline pipeline = new EvaluationPipeline(appConfig, datasetLoader, seeder,
-                    retrievalEvaluator, answerQualityEvaluator, baselineManager, ragService);
+                    retrievalEvaluator, answerQualityEvaluator, baselineManager, ragService,
+                    retrievalPipeline);
 
             EvaluationReport report = pipeline.run(format, SRC_RESOURCES, TARGET_DIR,
                     updateBaseline, skipAnswerQuality);

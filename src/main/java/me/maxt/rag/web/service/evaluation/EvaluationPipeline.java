@@ -3,6 +3,7 @@ package me.maxt.rag.web.service.evaluation;
 import me.maxt.rag.web.config.EvaluationConfig;
 import me.maxt.rag.web.service.RAGService;
 import me.maxt.rag.web.service.RAGService.AnswerWithSources;
+import me.maxt.rag.web.service.vector.RetrievalPipeline;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,7 +11,10 @@ import java.nio.file.Path;
 import java.util.*;
 
 /**
- * 评估管线编排入口，串联 6 个组件执行一个格式的完整评估流程。
+ * 评估管线编排入口，串联各组件执行一个格式的完整评估流程。
+ *
+ * <p>逐用例分流：答案质量要评估（且评估器可用）才经 RAGService 调 LLM 生成答案；
+ * 否则仅走 {@link RetrievalPipeline#retrieve} 取检索结果算纯检索指标（零 LLM 调用）。</p>
  */
 public class EvaluationPipeline {
 
@@ -23,11 +27,25 @@ public class EvaluationPipeline {
     private final AnswerQualityEvaluator answerQualityEvaluator;
     private final BaselineManager baselineManager;
     private final RAGService ragService;
+    private final RetrievalPipeline retrievalPipeline;
 
+    /**
+     * 注入评估所需的全部协作者。
+     *
+     * @param config                 评估配置
+     * @param datasetLoader          测试用例加载器
+     * @param seeder                 知识库入库器
+     * @param retrievalEvaluator     检索评估器
+     * @param answerQualityEvaluator 答案质量评估器
+     * @param baselineManager        基线管理器
+     * @param ragService             RAG 对话门面（生成答案，仅在评估答案质量时调用）
+     * @param retrievalPipeline      检索管线（纯检索指标入口，零 LLM 调用）
+     */
     public EvaluationPipeline(EvaluationConfig config, DatasetLoader datasetLoader,
                               KnowledgeBaseSeeder seeder, RetrievalEvaluator retrievalEvaluator,
                               AnswerQualityEvaluator answerQualityEvaluator,
-                              BaselineManager baselineManager, RAGService ragService) {
+                              BaselineManager baselineManager, RAGService ragService,
+                              RetrievalPipeline retrievalPipeline) {
         this.config = config;
         this.datasetLoader = datasetLoader;
         this.seeder = seeder;
@@ -35,6 +53,7 @@ public class EvaluationPipeline {
         this.answerQualityEvaluator = answerQualityEvaluator;
         this.baselineManager = baselineManager;
         this.ragService = ragService;
+        this.retrievalPipeline = retrievalPipeline;
     }
 
     /**
@@ -78,24 +97,31 @@ public class EvaluationPipeline {
         List<Integer> relevancyScores = new ArrayList<>();
 
         for (TestCase tc : dataset.testCases()) {
-            // 4a. 调 RAGService 实时生成答案
-            AnswerWithSources result = ragService.answerWithSources(tc.query());
-            List<String> retrievedDocNames = result.sources.stream()
-                    .map(s -> s.fileName())
-                    .toList();
-            List<String> contexts = result.sources.stream()
-                    .map(s -> s.text())
+            // 4a. 分流：答案质量要评估才调 LLM；纯检索指标走 pipeline.retrieve（零 LLM 调用）
+            String answer = null;
+            List<String> contexts = null;
+            List<RetrievalPipeline.Source> sources;
+            if (!skipAnswerQuality && answerQualityEvaluator.isAvailable()) {
+                AnswerWithSources result = ragService.answerWithSources(tc.query());
+                answer = result.answer;
+                sources = result.sources;
+                contexts = sources.stream().map(RetrievalPipeline.Source::text).toList();
+            } else {
+                sources = retrievalPipeline.retrieve(tc.query(), null);
+            }
+            List<String> retrievedDocNames = sources.stream()
+                    .map(RetrievalPipeline.Source::fileName)
                     .toList();
 
             // 4b. 检索指标
             Map<String, Double> retrievalScores = retrievalEvaluator.evaluate(tc, retrievedDocNames);
 
-            // 4c. 答案质量（可选）
+            // 4c. 答案质量（answer 为 null 时无答案可评，跳过）
             Integer faith = null;
             Integer rel = null;
-            if (!skipAnswerQuality && answerQualityEvaluator.isAvailable()) {
+            if (answer != null && contexts != null) {
                 Map<String, QualityScore> aq = answerQualityEvaluator.evaluate(
-                        tc.query(), result.answer, contexts);
+                        tc.query(), answer, contexts);
                 if (aq.containsKey("faithfulness")) {
                     faith = aq.get("faithfulness").score();
                     faithfulnessScores.add(faith);

@@ -39,3 +39,7 @@ build/
 ### Mac OS ###
 .DS_Store
 models/
+
+### Claude Code worktrees / SDD 工作区 ###
+.claude/worktrees/
+.superpowers/

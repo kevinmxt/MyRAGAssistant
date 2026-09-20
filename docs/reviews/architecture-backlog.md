@@ -15,6 +15,13 @@
 
 评审时的 Top recommendation（候选 1）、候选 2（模型分发）、候选 3（检索编排）与候选 4（配置绑定）均已完成。下一个按评审优先级是**候选 5（SseHub SSE 广播，Speculative——等环境检测再长新事件时做最划算）**。
 
+## 被跟踪的接受：ConfigBinder 内部小重复（候选 4 遗留，2026-09-20 双轴评审）
+
+终审接受的判断题级改进项，触发条件出现时再做：
+
+- **ConfigBinder.resolve 的 int/double 分支同形**（env→parse→warn→file→parse def 各重复一次，`env != null && !env.isEmpty()` 判空在五分支各出现一次）：待新增配置类型（Map/嵌套节）迫使 resolve 重构时一并提取 `envValue()` 与数值 parse 帮手。
+- **WebApplication 构造器风格二象**：llm/recall/envCheck 提了局部变量，document/milvus/rerank 仍链式导航；下次动组装根接线时顺手统一（提局部或全链式，取其一）。
+
 ## 被跟踪的接受：下载读超时/watchdog（候选 2 遗留）
 
 终审接受的健壮性缺口，转为被跟踪项：

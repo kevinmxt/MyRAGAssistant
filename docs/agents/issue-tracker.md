@@ -2,6 +2,8 @@
 
 Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+> **本机现状（2026-09-20）**：开发机未安装 `gh` CLI。技能说"发布到 issue tracker"时降级为本地票据：`.scratch/<feature-slug>/issues/<NN>-<slug>.md` 一票一文件、依赖序编号、文件头 `Blocked by` 行声明阻塞边（`.scratch/` 已 gitignore）。候选 4 已验证此降级路径可用。安装并认证 `gh` 后本页约定即恢复生效。
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.

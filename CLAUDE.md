@@ -24,6 +24,7 @@
 | `docs/environment.md` | 环境要求、技术栈、常见问题 |
 | `docs/superpowers/specs/2026-08-06-rag-evaluation-design.md` | RAG 效果评估设计文档 |
 | `docs/superpowers/plans/2026-08-06-rag-evaluation.md` | RAG 效果评估实现计划 |
+| `docs/superpowers/specs/2026-09-20-config-binder-design.md` | 候选 4 ConfigBinder 配置绑定设计（ADR-0003 同日） |
 | `docs/agents/issue-tracker.md` | GitHub Issues 操作约定 |
 | `docs/agents/triage-labels.md` | 五个 triage 标签映射 |
 | `docs/agents/domain.md` | 领域文档布局（CONTEXT.md + ADR） |

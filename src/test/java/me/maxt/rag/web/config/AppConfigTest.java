@@ -84,6 +84,33 @@ class AppConfigTest {
     }
 
     @Test
+    void shouldBindRecallModesFromCommaSeparatedString() throws Exception {
+        Path configFile = tempDir.resolve("config.json");
+        new ObjectMapper().writeValue(configFile.toFile(), Map.of(
+                "multiRecall", Map.of("modes", "dense,graph")));
+
+        AppConfig config = AppConfig.load(configFile, name -> null);
+
+        assertThat(config.getRecallModes()).containsExactly("dense", "graph");
+    }
+
+    @Test
+    void shouldBindSameCollectionNameInMilvusAndRecallSections() throws Exception {
+        Path configFile = tempDir.resolve("config.json");
+        new ObjectMapper().writeValue(configFile.toFile(), Map.of(
+                "milvus", Map.of("collectionName", "my_collection")));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fileConfig = new ObjectMapper().readValue(configFile.toFile(), Map.class);
+
+        String fromMilvus = ConfigBinder.bind(MilvusSettings.class, fileConfig, name -> null)
+                .getMilvusCollectionName();
+        String fromRecall = ConfigBinder.bind(RecallSettings.class, fileConfig, name -> null)
+                .getMilvusCollectionName();
+
+        assertThat(fromMilvus).isEqualTo(fromRecall).isEqualTo("my_collection");
+    }
+
+    @Test
     void shouldSupportRetrievalConfigInterface() {
         RetrievalConfig config = new AppConfig();
         assertThat(config.getMaxResults()).isEqualTo(3);

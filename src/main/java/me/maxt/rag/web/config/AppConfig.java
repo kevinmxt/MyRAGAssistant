@@ -32,93 +32,17 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
 
-    // ========== LLM 配置（试点节：ConfigBinder 装配） ==========
+    // ========== 已迁配置节（ConfigBinder 装配） ==========
 
     /** LLM 配置节 record，由 {@link ConfigBinder} 按优先级链装配 */
     private final LlmSettings llm;
+    private final RetrievalSettings retrieval;
+    private final DocumentSettings document;
+    private final ServerSettings server;
+    private final QueryEnhancementSettings queryEnhancement;
+    private final MilvusSettings milvus;
 
-    // ========== 检索参数 ==========
-
-    /** 检索返回的最大结果数，可通过环境变量 {@code RAG_RETRIEVAL_MAX_RESULTS} 覆盖 */
-    private int maxResults;
-
-    /** 检索最低相似度阈值（0~1），可通过环境变量 {@code RAG_RETRIEVAL_MIN_SCORE} 覆盖 */
-    private double minScore;
-
-    // ========== 文档参数 ==========
-
-    /** 默认文档目录，可通过环境变量 {@code RAG_DOCUMENT_DIR} 覆盖 */
-    private String documentDir;
-
-    /** 文档分块大小（字符数），可通过环境变量 {@code RAG_CHUNK_SIZE} 覆盖 */
-    private int chunkSize;
-
-    /** 文档分块重叠大小（字符数），可通过环境变量 {@code RAG_CHUNK_OVERLAP} 覆盖 */
-    private int chunkOverlap;
-
-    // ========== 对话参数 ==========
-
-    /** 对话记忆窗口大小（消息数），可通过环境变量 {@code RAG_CHAT_MEMORY_SIZE} 覆盖 */
-    private int memorySize;
-
-    // ========== 服务器参数 ==========
-
-    /** HTTP 服务器端口，可通过环境变量 {@code RAG_SERVER_PORT} 覆盖 */
-    private int port;
-
-    // ========== 存储参数 ==========
-
-    /** 向量存储文件路径，可通过环境变量 {@code RAG_STORE_PATH} 覆盖 */
-    private String storeFilePath;
-
-    // ========== 文档解析参数 ==========
-
-    /** 支持的文件扩展名列表，可通过环境变量 {@code RAG_SUPPORTED_EXTENSIONS}（逗号分隔）覆盖 */
-    private List<String> supportedFileExtensions;
-
-    // ========== Chunking 参数 ==========
-
-    /** 分块模式："auto" | "structure" | "semantic" | "recursive"，可通过环境变量 {@code RAG_CHUNKING_MODE} 覆盖 */
-    private String chunkingMode;
-
-    /** 语义断点相似度阈值，可通过环境变量 {@code RAG_CHUNKING_SEMANTIC_THRESHOLD} 覆盖 */
-    private double semanticThreshold;
-
-    /** 是否启用 Agent 精炼，可通过环境变量 {@code RAG_CHUNKING_AGENT_REFINER} 覆盖 */
-    private boolean enableAgentRefiner;
-
-    /** 单块最大字符数上限，可通过环境变量 {@code RAG_CHUNKING_MAX_SIZE} 覆盖 */
-    private int maxChunkSize;
-
-    // ========== 查询增强参数 ==========
-
-    /** 是否启用查询增强，可通过环境变量 RAG_QUERY_ENHANCEMENT_ENABLED 覆盖 */
-    private boolean queryEnhancementEnabled;
-
-    /** 默认增强模式，可通过环境变量 RAG_QUERY_ENHANCEMENT_MODE 覆盖 */
-    private String defaultEnhancementMode;
-
-    /** RRF 融合参数，可通过环境变量 RAG_QUERY_ENHANCEMENT_RRF_K 覆盖 */
-    private int rrfK;
-
-    /** HyDE 生成最大 Token 数，可通过环境变量 RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS 覆盖 */
-    private int hydeMaxTokens;
-
-    // ========== Milvus 参数 ==========
-
-    /** Milvus 服务主机地址，可通过环境变量 RAG_MILVUS_HOST 覆盖 */
-    private String milvusHost;
-
-    /** Milvus gRPC 端口，可通过环境变量 RAG_MILVUS_PORT 覆盖 */
-    private int milvusPort;
-
-    /** Milvus collection 名称，可通过环境变量 RAG_MILVUS_COLLECTION 覆盖 */
-    private String milvusCollectionName;
-
-    /** 向量维度，可通过环境变量 RAG_MILVUS_DIMENSION 覆盖 */
-    private int milvusDimension;
-
-    // ========== 多路召回参数 ==========
+    // ========== 多路召回参数（未迁） ==========
 
     /** 是否启用多路召回，可通过环境变量 RAG_MULTI_RECALL_ENABLED 覆盖 */
     private boolean multiRecallEnabled;
@@ -204,31 +128,13 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
      */
     AppConfig(Map<String, Object> fileConfig, Function<String, String> envLookup) {
         this.llm = ConfigBinder.bind(LlmSettings.class, fileConfig, envLookup);
+        this.retrieval = ConfigBinder.bind(RetrievalSettings.class, fileConfig, envLookup);
+        this.document = ConfigBinder.bind(DocumentSettings.class, fileConfig, envLookup);
+        this.server = ConfigBinder.bind(ServerSettings.class, fileConfig, envLookup);
+        this.queryEnhancement = ConfigBinder.bind(QueryEnhancementSettings.class, fileConfig, envLookup);
+        this.milvus = ConfigBinder.bind(MilvusSettings.class, fileConfig, envLookup);
 
         // Set defaults（未迁键）
-        this.maxResults = 3;
-        this.minScore = 0.5;
-        this.documentDir = "./documents";
-        this.chunkSize = 300;
-        this.chunkOverlap = 0;
-        this.memorySize = 10;
-        this.port = 8080;
-        this.storeFilePath = "./data/embedding-store.json";
-        this.supportedFileExtensions = Arrays.asList(
-                ".txt", ".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg",
-                ".md", ".html", ".csv", ".json", ".xlsx", ".pptx");
-        this.chunkingMode = "auto";
-        this.semanticThreshold = 0.6;
-        this.enableAgentRefiner = false;
-        this.maxChunkSize = 2000;
-        this.queryEnhancementEnabled = true;
-        this.defaultEnhancementMode = "auto";
-        this.rrfK = 60;
-        this.hydeMaxTokens = 200;
-        this.milvusHost = "localhost";
-        this.milvusPort = 19530;
-        this.milvusCollectionName = "rag_knowledge_base";
-        this.milvusDimension = 512;
         this.multiRecallEnabled = false;
         this.recallModes = List.of("dense");
         this.recallTopK = 5;
@@ -301,69 +207,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
      */
     @SuppressWarnings("unchecked")
     private static void applyFileConfig(AppConfig config, Map<String, Object> fileConfig) {
-        Map<String, Object> retrieval = (Map<String, Object>) fileConfig.get("retrieval");
-        if (retrieval != null) {
-            config.maxResults = getInt(retrieval, "maxResults", config.maxResults);
-            config.minScore = getDouble(retrieval, "minScore", config.minScore);
-        }
-
-        Map<String, Object> document = (Map<String, Object>) fileConfig.get("document");
-        if (document != null) {
-            config.documentDir = getString(document, "dir", config.documentDir);
-            config.chunkSize = getInt(document, "chunkSize", config.chunkSize);
-            config.chunkOverlap = getInt(document, "chunkOverlap", config.chunkOverlap);
-
-            // supportedExtensions can be a JSON array or comma-separated string
-            Object extObj = document.get("supportedExtensions");
-            if (extObj instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<String> extList = (List<String>) extObj;
-                config.supportedFileExtensions = extList;
-            } else if (extObj instanceof String) {
-                config.supportedFileExtensions = Arrays.asList(((String) extObj).split(","));
-            }
-
-            // Chunking config
-            Map<String, Object> chunking = (Map<String, Object>) document.get("chunking");
-            if (chunking != null) {
-                config.chunkingMode = getString(chunking, "mode", config.chunkingMode);
-                config.semanticThreshold = getDouble(chunking, "semanticThreshold", config.semanticThreshold);
-                config.enableAgentRefiner = getBoolean(chunking, "enableAgentRefiner", config.enableAgentRefiner);
-                config.maxChunkSize = getInt(chunking, "maxChunkSize", config.maxChunkSize);
-            }
-        }
-
-        Map<String, Object> chat = (Map<String, Object>) fileConfig.get("chat");
-        if (chat != null) {
-            config.memorySize = getInt(chat, "memorySize", config.memorySize);
-        }
-
-        Map<String, Object> server = (Map<String, Object>) fileConfig.get("server");
-        if (server != null) {
-            config.port = getInt(server, "port", config.port);
-        }
-
-        Map<String, Object> store = (Map<String, Object>) fileConfig.get("store");
-        if (store != null) {
-            config.storeFilePath = getString(store, "filePath", config.storeFilePath);
-        }
-
-        Map<String, Object> milvus = (Map<String, Object>) fileConfig.get("milvus");
-        if (milvus != null) {
-            config.milvusHost = getString(milvus, "host", config.milvusHost);
-            config.milvusPort = getInt(milvus, "port", config.milvusPort);
-            config.milvusCollectionName = getString(milvus, "collectionName", config.milvusCollectionName);
-            config.milvusDimension = getInt(milvus, "dimension", config.milvusDimension);
-        }
-
-        Map<String, Object> queryEnhancement = (Map<String, Object>) fileConfig.get("queryEnhancement");
-        if (queryEnhancement != null) {
-            config.queryEnhancementEnabled = getBoolean(queryEnhancement, "enabled", config.queryEnhancementEnabled);
-            config.defaultEnhancementMode = getString(queryEnhancement, "defaultMode", config.defaultEnhancementMode);
-            config.rrfK = getInt(queryEnhancement, "rrfK", config.rrfK);
-            config.hydeMaxTokens = getInt(queryEnhancement, "hydeMaxTokens", config.hydeMaxTokens);
-        }
-
         Map<String, Object> multiRecall = (Map<String, Object>) fileConfig.get("multiRecall");
         if (multiRecall != null) {
             config.multiRecallEnabled = getBoolean(multiRecall, "enabled", config.multiRecallEnabled);
@@ -426,30 +269,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
      * 应用环境变量覆盖配置值（未迁键；已迁节由 ConfigBinder 处理）。
      */
     private static void applyEnvOverrides(AppConfig config, Function<String, String> envLookup) {
-        config.maxResults = envInt("RAG_RETRIEVAL_MAX_RESULTS", config.maxResults, envLookup);
-        config.minScore = envDouble("RAG_RETRIEVAL_MIN_SCORE", config.minScore, envLookup);
-        config.chunkSize = envInt("RAG_CHUNK_SIZE", config.chunkSize, envLookup);
-        config.chunkOverlap = envInt("RAG_CHUNK_OVERLAP", config.chunkOverlap, envLookup);
-        config.memorySize = envInt("RAG_CHAT_MEMORY_SIZE", config.memorySize, envLookup);
-        config.port = envInt("RAG_SERVER_PORT", config.port, envLookup);
-        config.documentDir = env("RAG_DOCUMENT_DIR", config.documentDir, envLookup);
-        config.storeFilePath = env("RAG_STORE_PATH", config.storeFilePath, envLookup);
-        String extEnv = envLookup.apply("RAG_SUPPORTED_EXTENSIONS");
-        if (extEnv != null && !extEnv.isEmpty()) {
-            config.supportedFileExtensions = Arrays.asList(extEnv.split(","));
-        }
-        config.chunkingMode = env("RAG_CHUNKING_MODE", config.chunkingMode, envLookup);
-        config.semanticThreshold = envDouble("RAG_CHUNKING_SEMANTIC_THRESHOLD", config.semanticThreshold, envLookup);
-        config.enableAgentRefiner = envBool("RAG_CHUNKING_AGENT_REFINER", config.enableAgentRefiner, envLookup);
-        config.maxChunkSize = envInt("RAG_CHUNKING_MAX_SIZE", config.maxChunkSize, envLookup);
-        config.queryEnhancementEnabled = envBool("RAG_QUERY_ENHANCEMENT_ENABLED", config.queryEnhancementEnabled, envLookup);
-        config.defaultEnhancementMode = env("RAG_QUERY_ENHANCEMENT_MODE", config.defaultEnhancementMode, envLookup);
-        config.rrfK = envInt("RAG_QUERY_ENHANCEMENT_RRF_K", config.rrfK, envLookup);
-        config.hydeMaxTokens = envInt("RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS", config.hydeMaxTokens, envLookup);
-        config.milvusHost = env("RAG_MILVUS_HOST", config.milvusHost, envLookup);
-        config.milvusPort = envInt("RAG_MILVUS_PORT", config.milvusPort, envLookup);
-        config.milvusCollectionName = env("RAG_MILVUS_COLLECTION", config.milvusCollectionName, envLookup);
-        config.milvusDimension = envInt("RAG_MILVUS_DIMENSION", config.milvusDimension, envLookup);
         config.multiRecallEnabled = envBool("RAG_MULTI_RECALL_ENABLED", config.multiRecallEnabled, envLookup);
         String modesEnv = envLookup.apply("RAG_MULTI_RECALL_MODES");
         if (modesEnv != null && !modesEnv.isEmpty()) {
@@ -548,47 +367,47 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     /** @return API 超时秒数 */
     @Override public int getTimeoutSeconds() { return llm.getTimeoutSeconds(); }
     /** @return 检索返回的最大结果数 */
-    public int getMaxResults() { return maxResults; }
+    @Override public int getMaxResults() { return retrieval.getMaxResults(); }
     /** @return 检索最低相似度阈值（0~1） */
-    public double getMinScore() { return minScore; }
+    @Override public double getMinScore() { return retrieval.getMinScore(); }
     /** @return 默认文档目录路径 */
-    public String getDocumentDir() { return documentDir; }
+    @Override public String getDocumentDir() { return document.getDocumentDir(); }
     /** @return 文档分块大小（字符数） */
-    public int getChunkSize() { return chunkSize; }
+    @Override public int getChunkSize() { return document.getChunkSize(); }
     /** @return 文档分块重叠大小（字符数） */
-    public int getChunkOverlap() { return chunkOverlap; }
+    @Override public int getChunkOverlap() { return document.getChunkOverlap(); }
     /** @return 对话记忆窗口大小（消息数） */
-    public int getMemorySize() { return memorySize; }
+    @Override public int getMemorySize() { return retrieval.getMemorySize(); }
     /** @return HTTP 服务器端口 */
-    public int getPort() { return port; }
+    @Override public int getPort() { return server.getPort(); }
     /** @return 向量存储文件路径 */
-    public String getStoreFilePath() { return storeFilePath; }
+    @Override public String getStoreFilePath() { return server.getStoreFilePath(); }
     /** @return 支持的文件扩展名列表 */
-    public List<String> getSupportedFileExtensions() { return supportedFileExtensions; }
+    @Override public List<String> getSupportedFileExtensions() { return document.getSupportedFileExtensions(); }
     /** @return 分块模式 */
-    public String getChunkingMode() { return chunkingMode; }
+    @Override public String getChunkingMode() { return document.getChunkingMode(); }
     /** @return 语义断点相似度阈值 */
-    public double getSemanticThreshold() { return semanticThreshold; }
+    @Override public double getSemanticThreshold() { return document.getSemanticThreshold(); }
     /** @return 是否启用 Agent 精炼 */
-    public boolean isAgentRefinerEnabled() { return enableAgentRefiner; }
+    @Override public boolean isAgentRefinerEnabled() { return document.isAgentRefinerEnabled(); }
     /** @return 单块最大字符数上限 */
-    public int getMaxChunkSize() { return maxChunkSize; }
+    @Override public int getMaxChunkSize() { return document.getMaxChunkSize(); }
     /** @return 是否启用查询增强 */
-    public boolean isQueryEnhancementEnabled() { return queryEnhancementEnabled; }
+    @Override public boolean isQueryEnhancementEnabled() { return queryEnhancement.isQueryEnhancementEnabled(); }
     /** @return 默认增强模式 */
-    public String getDefaultEnhancementMode() { return defaultEnhancementMode; }
+    @Override public String getDefaultEnhancementMode() { return queryEnhancement.getDefaultEnhancementMode(); }
     /** @return RRF 融合参数 k */
-    public int getRrfK() { return rrfK; }
+    @Override public int getRrfK() { return queryEnhancement.getRrfK(); }
     /** @return HyDE 生成文本最大 token 数 */
-    public int getHydeMaxTokens() { return hydeMaxTokens; }
+    @Override public int getHydeMaxTokens() { return queryEnhancement.getHydeMaxTokens(); }
     /** @return Milvus 服务主机地址 */
-    public String getMilvusHost() { return milvusHost; }
+    @Override public String getMilvusHost() { return milvus.getMilvusHost(); }
     /** @return Milvus gRPC 端口 */
-    public int getMilvusPort() { return milvusPort; }
+    @Override public int getMilvusPort() { return milvus.getMilvusPort(); }
     /** @return Milvus collection 名称 */
-    public String getMilvusCollectionName() { return milvusCollectionName; }
+    @Override public String getMilvusCollectionName() { return milvus.getMilvusCollectionName(); }
     /** @return 向量维度 */
-    public int getMilvusDimension() { return milvusDimension; }
+    @Override public int getMilvusDimension() { return milvus.getMilvusDimension(); }
     /** @return 是否启用多路召回 */
     public boolean isMultiRecallEnabled() { return multiRecallEnabled; }
     /** @return 启用的召回模式列表 */

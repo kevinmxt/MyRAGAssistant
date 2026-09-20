@@ -34,7 +34,20 @@
 
 *避免叫*：RetrievalService（不表达"编排"）、SearchOrchestrator（丢"检索增强"语义）。
 
+### 配置绑定（ConfigBinder）
+
+把**配置节**（Settings record，如 LlmSettings）从三层数据源装配成不可变对象的通用绑定器。每个键在 record 构造参数上以一个 `@Key` 注解声明三件事：json 点路径、环境变量名、字符串默认值——**每键一处**（旧 AppConfig 每键五处：字段/默认值/file 行/env 行/getter）。
+
+- **优先级链**：代码默认 → config.json → 环境变量，后者覆盖前者；类型由构造参数反射决定（String/int/double/boolean/List<String>，List 兼容 json 数组与逗号分隔串）。
+- 节 record 直接 implements 对应 Config 接口（12 个接缝不动），组件命名用 getter 风格（`String getApiKey`），访问器即接口方法，零桥接样板。
+- AppConfig 是**容器**：`load()` 装配 11 个节并暴露 `llm()/retrieval()/...` 访问器，自身不再实现任何 Config 接口；消费者按窄接口取节，组装根负责传递。
+
+*避免叫*：ConfigLoader（丢失"节 + 绑定"结构）、SettingsManager（无状态可言，"Manager"空泛）。
+
+## 相关决策
+
 ## 相关决策
 
 - `docs/adr/0001-sparse-recall-no-late-registration.md` — 重连后 sparse 召回不自动恢复（推迟）
 - `docs/adr/0002-model-download-deferred.md` — 模型下载不做断点续传与进度广播（推迟）
+- `docs/adr/0003-annotation-driven-config-binder.md` — 注解驱动配置绑定：@Key 声明 + 反射绑定器 + record 组件 getter 命名

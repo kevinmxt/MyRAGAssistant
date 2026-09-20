@@ -2,15 +2,17 @@ package me.maxt.rag.web.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AppConfigTest {
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void shouldHaveSensibleDefaults() {
@@ -51,7 +53,7 @@ class AppConfigTest {
 
     @Test
     void shouldLoadFromConfigJson() throws Exception {
-        Path configFile = Path.of("target/test-config.json");
+        Path configFile = tempDir.resolve("config.json");
         ObjectMapper mapper = new ObjectMapper();
         Map<String, Object> json = Map.of(
                 "llm", Map.of("modelName", "test-model", "apiKey", "sk-test"),
@@ -61,14 +63,24 @@ class AppConfigTest {
         );
         mapper.writeValue(configFile.toFile(), json);
 
-        // Can't easily redirect AppConfig.load() to different file,
-        // but we can test the constructor + apply logic directly.
-        // Defaults should be intact when no config file present in cwd.
-        AppConfig config = new AppConfig();
+        AppConfig config = AppConfig.load(configFile, name -> null);
+
+        assertThat(config.getApiKey()).isEqualTo("sk-test");
+        assertThat(config.getModelName()).isEqualTo("test-model");
+        assertThat(config.getPort()).isEqualTo(9090);
+        assertThat(config.getMaxResults()).isEqualTo(5);
+        assertThat(config.getChunkSize()).isEqualTo(500);
+        assertThat(config.getSupportedFileExtensions()).contains(".txt", ".md");
+        // 未覆盖的键回落默认值
+        assertThat(config.getTemperature()).isEqualTo(0.7);
+    }
+
+    @Test
+    void shouldFallBackToDefaultsWhenConfigFileMissing() {
+        AppConfig config = AppConfig.load(tempDir.resolve("nonexistent.json"), name -> null);
+
         assertThat(config.getPort()).isEqualTo(8080);
         assertThat(config.getModelName()).isEqualTo("deepseek-v4-flash");
-
-        Files.deleteIfExists(configFile);
     }
 
     @Test

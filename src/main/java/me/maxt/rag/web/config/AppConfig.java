@@ -6,9 +6,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * 应用配置管理类，负责从 config.json 和环境变量中加载配置。
@@ -30,28 +32,10 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
 
-    // ========== LLM 配置 ==========
+    // ========== LLM 配置（试点节：ConfigBinder 装配） ==========
 
-    /** DeepSeek API Key，可通过环境变量 {@code RAG_LLM_API_KEY} 覆盖 */
-    private String apiKey;
-
-    /** DeepSeek API 基础地址，可通过环境变量 {@code RAG_LLM_BASE_URL} 覆盖 */
-    private String baseUrl;
-
-    /** 模型名称，可通过环境变量 {@code RAG_LLM_MODEL_NAME} 覆盖 */
-    private String modelName;
-
-    /** 系统提示词，可通过环境变量 {@code RAG_LLM_SYSTEM_PROMPT} 覆盖 */
-    private String systemPrompt;
-
-    /** 模型温度参数（0~1），可通过环境变量 {@code RAG_LLM_TEMPERATURE} 覆盖 */
-    private double temperature;
-
-    /** 最大输出 Token 数，可通过环境变量 {@code RAG_LLM_MAX_TOKENS} 覆盖 */
-    private int maxTokens;
-
-    /** API 超时秒数，可通过环境变量 {@code RAG_LLM_TIMEOUT} 覆盖 */
-    private int timeoutSeconds;
+    /** LLM 配置节 record，由 {@link ConfigBinder} 按优先级链装配 */
+    private final LlmSettings llm;
 
     // ========== 检索参数 ==========
 
@@ -208,17 +192,20 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     private String modelDownloadMirror;
 
     /**
-     * 使用默认值构造配置实例。
+     * 使用默认值构造配置实例（不读 config.json、不读环境变量）。
      */
     public AppConfig() {
-        // Set defaults
-        this.apiKey = "demo";
-        this.baseUrl = "https://api.deepseek.com";
-        this.modelName = "deepseek-v4-flash";
-        this.systemPrompt = "你是一个基于本地知识库的智能助手，请根据提供的文档内容回答用户问题。如果文档中没有相关信息，请如实告知。";
-        this.temperature = 0.7;
-        this.maxTokens = 4096;
-        this.timeoutSeconds = 120;
+        this(Map.of(), name -> null);
+    }
+
+    /**
+     * 按三层数据源装配：已迁节的 record 由 {@link ConfigBinder} 绑定，
+     * 未迁键仍走下方手写默认值 + 解析行。
+     */
+    AppConfig(Map<String, Object> fileConfig, Function<String, String> envLookup) {
+        this.llm = ConfigBinder.bind(LlmSettings.class, fileConfig, envLookup);
+
+        // Set defaults（未迁键）
         this.maxResults = 3;
         this.minScore = 0.5;
         this.documentDir = "./documents";
@@ -263,32 +250,50 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         this.probeTimeoutSeconds = 5;
         this.modelAutoDownload = true;
         this.modelDownloadMirror = "https://hf-mirror.com";
+
+        // 未迁键的 file 与 env 覆盖
+        applyFileConfig(this, fileConfig);
+        applyEnvOverrides(this, envLookup);
     }
 
     /**
-     * 按优先级链加载配置：代码默认 → config.json → 环境变量。
+     * 按优先级链加载配置：代码默认 → 工作目录下 config.json → 环境变量。
      *
      * @return 加载完成的配置实例
      */
     public static AppConfig load() {
-        AppConfig config = new AppConfig();
+        return load(new File(System.getProperty("user.dir"), "config.json").toPath());
+    }
 
-        // 1. Try loading config.json from working directory
-        File configFile = new File(System.getProperty("user.dir"), "config.json");
-        if (configFile.exists()) {
+    /**
+     * 按优先级链加载指定路径的配置文件（供测试注入；文件缺失时全部取默认值）。
+     *
+     * @param configFile config.json 文件路径
+     * @return 加载完成的配置实例
+     */
+    static AppConfig load(Path configFile) {
+        return load(configFile, System::getenv);
+    }
+
+    /**
+     * 按优先级链加载，环境变量查找函数可注入（测试密闭用，不受宿主机真实环境变量干扰）。
+     *
+     * @param configFile config.json 文件路径
+     * @param envLookup  环境变量查找函数
+     * @return 加载完成的配置实例
+     */
+    static AppConfig load(Path configFile, Function<String, String> envLookup) {
+        Map<String, Object> fileConfig = Map.of();
+        if (configFile.toFile().exists()) {
             try {
                 @SuppressWarnings("unchecked")
-                Map<String, Object> fileConfig = MAPPER.readValue(configFile, Map.class);
-                applyFileConfig(config, fileConfig);
+                Map<String, Object> parsed = MAPPER.readValue(configFile.toFile(), Map.class);
+                fileConfig = parsed;
             } catch (IOException e) {
                 log.warn("Failed to parse config.json, using defaults.", e);
             }
         }
-
-        // 2. Apply environment variable overrides
-        applyEnvOverrides(config);
-
-        return config;
+        return new AppConfig(fileConfig, envLookup);
     }
 
     /**
@@ -296,17 +301,6 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
      */
     @SuppressWarnings("unchecked")
     private static void applyFileConfig(AppConfig config, Map<String, Object> fileConfig) {
-        Map<String, Object> llm = (Map<String, Object>) fileConfig.get("llm");
-        if (llm != null) {
-            config.apiKey = getString(llm, "apiKey", config.apiKey);
-            config.baseUrl = getString(llm, "baseUrl", config.baseUrl);
-            config.modelName = getString(llm, "modelName", config.modelName);
-            config.systemPrompt = getString(llm, "systemPrompt", config.systemPrompt);
-            config.temperature = getDouble(llm, "temperature", config.temperature);
-            config.maxTokens = getInt(llm, "maxTokens", config.maxTokens);
-            config.timeoutSeconds = getInt(llm, "timeoutSeconds", config.timeoutSeconds);
-        }
-
         Map<String, Object> retrieval = (Map<String, Object>) fileConfig.get("retrieval");
         if (retrieval != null) {
             config.maxResults = getInt(retrieval, "maxResults", config.maxResults);
@@ -429,67 +423,60 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     }
 
     /**
-     * 应用环境变量覆盖配置值。
+     * 应用环境变量覆盖配置值（未迁键；已迁节由 ConfigBinder 处理）。
      */
-    private static void applyEnvOverrides(AppConfig config) {
-        config.apiKey = env("RAG_LLM_API_KEY", config.apiKey);
-        config.baseUrl = env("RAG_LLM_BASE_URL", config.baseUrl);
-        config.modelName = env("RAG_LLM_MODEL_NAME", config.modelName);
-        config.systemPrompt = env("RAG_LLM_SYSTEM_PROMPT", config.systemPrompt);
-        config.temperature = envDouble("RAG_LLM_TEMPERATURE", config.temperature);
-        config.maxTokens = envInt("RAG_LLM_MAX_TOKENS", config.maxTokens);
-        config.timeoutSeconds = envInt("RAG_LLM_TIMEOUT", config.timeoutSeconds);
-        config.maxResults = envInt("RAG_RETRIEVAL_MAX_RESULTS", config.maxResults);
-        config.minScore = envDouble("RAG_RETRIEVAL_MIN_SCORE", config.minScore);
-        config.chunkSize = envInt("RAG_CHUNK_SIZE", config.chunkSize);
-        config.chunkOverlap = envInt("RAG_CHUNK_OVERLAP", config.chunkOverlap);
-        config.memorySize = envInt("RAG_CHAT_MEMORY_SIZE", config.memorySize);
-        config.port = envInt("RAG_SERVER_PORT", config.port);
-        config.documentDir = env("RAG_DOCUMENT_DIR", config.documentDir);
-        config.storeFilePath = env("RAG_STORE_PATH", config.storeFilePath);
-        String extEnv = System.getenv("RAG_SUPPORTED_EXTENSIONS");
+    private static void applyEnvOverrides(AppConfig config, Function<String, String> envLookup) {
+        config.maxResults = envInt("RAG_RETRIEVAL_MAX_RESULTS", config.maxResults, envLookup);
+        config.minScore = envDouble("RAG_RETRIEVAL_MIN_SCORE", config.minScore, envLookup);
+        config.chunkSize = envInt("RAG_CHUNK_SIZE", config.chunkSize, envLookup);
+        config.chunkOverlap = envInt("RAG_CHUNK_OVERLAP", config.chunkOverlap, envLookup);
+        config.memorySize = envInt("RAG_CHAT_MEMORY_SIZE", config.memorySize, envLookup);
+        config.port = envInt("RAG_SERVER_PORT", config.port, envLookup);
+        config.documentDir = env("RAG_DOCUMENT_DIR", config.documentDir, envLookup);
+        config.storeFilePath = env("RAG_STORE_PATH", config.storeFilePath, envLookup);
+        String extEnv = envLookup.apply("RAG_SUPPORTED_EXTENSIONS");
         if (extEnv != null && !extEnv.isEmpty()) {
             config.supportedFileExtensions = Arrays.asList(extEnv.split(","));
         }
-        config.chunkingMode = env("RAG_CHUNKING_MODE", config.chunkingMode);
-        config.semanticThreshold = envDouble("RAG_CHUNKING_SEMANTIC_THRESHOLD", config.semanticThreshold);
-        config.enableAgentRefiner = envBool("RAG_CHUNKING_AGENT_REFINER", config.enableAgentRefiner);
-        config.maxChunkSize = envInt("RAG_CHUNKING_MAX_SIZE", config.maxChunkSize);
-        config.queryEnhancementEnabled = envBool("RAG_QUERY_ENHANCEMENT_ENABLED", config.queryEnhancementEnabled);
-        config.defaultEnhancementMode = env("RAG_QUERY_ENHANCEMENT_MODE", config.defaultEnhancementMode);
-        config.rrfK = envInt("RAG_QUERY_ENHANCEMENT_RRF_K", config.rrfK);
-        config.hydeMaxTokens = envInt("RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS", config.hydeMaxTokens);
-        config.milvusHost = env("RAG_MILVUS_HOST", config.milvusHost);
-        config.milvusPort = envInt("RAG_MILVUS_PORT", config.milvusPort);
-        config.milvusCollectionName = env("RAG_MILVUS_COLLECTION", config.milvusCollectionName);
-        config.milvusDimension = envInt("RAG_MILVUS_DIMENSION", config.milvusDimension);
-        config.multiRecallEnabled = envBool("RAG_MULTI_RECALL_ENABLED", config.multiRecallEnabled);
-        String modesEnv = System.getenv("RAG_MULTI_RECALL_MODES");
+        config.chunkingMode = env("RAG_CHUNKING_MODE", config.chunkingMode, envLookup);
+        config.semanticThreshold = envDouble("RAG_CHUNKING_SEMANTIC_THRESHOLD", config.semanticThreshold, envLookup);
+        config.enableAgentRefiner = envBool("RAG_CHUNKING_AGENT_REFINER", config.enableAgentRefiner, envLookup);
+        config.maxChunkSize = envInt("RAG_CHUNKING_MAX_SIZE", config.maxChunkSize, envLookup);
+        config.queryEnhancementEnabled = envBool("RAG_QUERY_ENHANCEMENT_ENABLED", config.queryEnhancementEnabled, envLookup);
+        config.defaultEnhancementMode = env("RAG_QUERY_ENHANCEMENT_MODE", config.defaultEnhancementMode, envLookup);
+        config.rrfK = envInt("RAG_QUERY_ENHANCEMENT_RRF_K", config.rrfK, envLookup);
+        config.hydeMaxTokens = envInt("RAG_QUERY_ENHANCEMENT_HYDE_MAX_TOKENS", config.hydeMaxTokens, envLookup);
+        config.milvusHost = env("RAG_MILVUS_HOST", config.milvusHost, envLookup);
+        config.milvusPort = envInt("RAG_MILVUS_PORT", config.milvusPort, envLookup);
+        config.milvusCollectionName = env("RAG_MILVUS_COLLECTION", config.milvusCollectionName, envLookup);
+        config.milvusDimension = envInt("RAG_MILVUS_DIMENSION", config.milvusDimension, envLookup);
+        config.multiRecallEnabled = envBool("RAG_MULTI_RECALL_ENABLED", config.multiRecallEnabled, envLookup);
+        String modesEnv = envLookup.apply("RAG_MULTI_RECALL_MODES");
         if (modesEnv != null && !modesEnv.isEmpty()) {
             config.recallModes = Arrays.asList(modesEnv.split(","));
         }
-        config.recallTopK = envInt("RAG_MULTI_RECALL_TOP_K", config.recallTopK);
-        config.recallRrfK = envInt("RAG_MULTI_RECALL_RRF_K", config.recallRrfK);
-        config.lightRagPythonPath = env("RAG_LIGHTRAG_PYTHON", config.lightRagPythonPath);
-        config.lightRagWorkingDir = env("RAG_LIGHTRAG_WORKDIR", config.lightRagWorkingDir);
-        config.lightRagEmbeddingModelPath = env("RAG_LIGHTRAG_EMBEDDING", config.lightRagEmbeddingModelPath);
-        config.lightRagQueryMode = env("RAG_LIGHTRAG_QUERY_MODE", config.lightRagQueryMode);
-        config.rerankModelPath = env("RAG_RERANK_MODEL_PATH", config.rerankModelPath);
-        config.rerankExpansionFactor = envInt("RAG_RERANK_EXPANSION_FACTOR", config.rerankExpansionFactor);
-        config.rerankTopK = envInt("RAG_RERANK_TOP_K", config.rerankTopK);
-        config.evaluationTopK = envInt("RAG_EVALUATION_TOP_K", config.evaluationTopK);
-        String formatsEnv = System.getenv("RAG_EVALUATION_FORMATS");
+        config.recallTopK = envInt("RAG_MULTI_RECALL_TOP_K", config.recallTopK, envLookup);
+        config.recallRrfK = envInt("RAG_MULTI_RECALL_RRF_K", config.recallRrfK, envLookup);
+        config.lightRagPythonPath = env("RAG_LIGHTRAG_PYTHON", config.lightRagPythonPath, envLookup);
+        config.lightRagWorkingDir = env("RAG_LIGHTRAG_WORKDIR", config.lightRagWorkingDir, envLookup);
+        config.lightRagEmbeddingModelPath = env("RAG_LIGHTRAG_EMBEDDING", config.lightRagEmbeddingModelPath, envLookup);
+        config.lightRagQueryMode = env("RAG_LIGHTRAG_QUERY_MODE", config.lightRagQueryMode, envLookup);
+        config.rerankModelPath = env("RAG_RERANK_MODEL_PATH", config.rerankModelPath, envLookup);
+        config.rerankExpansionFactor = envInt("RAG_RERANK_EXPANSION_FACTOR", config.rerankExpansionFactor, envLookup);
+        config.rerankTopK = envInt("RAG_RERANK_TOP_K", config.rerankTopK, envLookup);
+        config.evaluationTopK = envInt("RAG_EVALUATION_TOP_K", config.evaluationTopK, envLookup);
+        String formatsEnv = envLookup.apply("RAG_EVALUATION_FORMATS");
         if (formatsEnv != null && !formatsEnv.isEmpty()) {
             config.evaluationFormats = Arrays.asList(formatsEnv.split(","));
         }
-        config.answerQualityEnabled = envBool("RAG_EVALUATION_ANSWER_QUALITY_ENABLED", config.answerQualityEnabled);
-        config.degradationThreshold = envDouble("RAG_EVALUATION_DEGRADATION_THRESHOLD", config.degradationThreshold);
-        config.envCheckEnabled = envBool("RAG_ENV_CHECK_ENABLED", config.envCheckEnabled);
-        config.autoInstallEnabled = envBool("RAG_ENV_AUTO_INSTALL", config.autoInstallEnabled);
-        config.envCheckTimeoutSeconds = envInt("RAG_ENV_CHECK_TIMEOUT", config.envCheckTimeoutSeconds);
-        config.probeTimeoutSeconds = envInt("RAG_ENV_PROBE_TIMEOUT", config.probeTimeoutSeconds);
-        config.modelAutoDownload = envBool("RAG_MODEL_AUTO_DOWNLOAD", config.modelAutoDownload);
-        config.modelDownloadMirror = env("RAG_MODEL_MIRROR", config.modelDownloadMirror);
+        config.answerQualityEnabled = envBool("RAG_EVALUATION_ANSWER_QUALITY_ENABLED", config.answerQualityEnabled, envLookup);
+        config.degradationThreshold = envDouble("RAG_EVALUATION_DEGRADATION_THRESHOLD", config.degradationThreshold, envLookup);
+        config.envCheckEnabled = envBool("RAG_ENV_CHECK_ENABLED", config.envCheckEnabled, envLookup);
+        config.autoInstallEnabled = envBool("RAG_ENV_AUTO_INSTALL", config.autoInstallEnabled, envLookup);
+        config.envCheckTimeoutSeconds = envInt("RAG_ENV_CHECK_TIMEOUT", config.envCheckTimeoutSeconds, envLookup);
+        config.probeTimeoutSeconds = envInt("RAG_ENV_PROBE_TIMEOUT", config.probeTimeoutSeconds, envLookup);
+        config.modelAutoDownload = envBool("RAG_MODEL_AUTO_DOWNLOAD", config.modelAutoDownload, envLookup);
+        config.modelDownloadMirror = env("RAG_MODEL_MIRROR", config.modelDownloadMirror, envLookup);
     }
 
     private static String getString(Map<String, Object> map, String key, String defaultVal) {
@@ -511,21 +498,21 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         return defaultVal;
     }
 
-    private static String env(String name, String defaultVal) {
-        String val = System.getenv(name);
+    private static String env(String name, String defaultVal, Function<String, String> envLookup) {
+        String val = envLookup.apply(name);
         return (val != null && !val.isEmpty()) ? val : defaultVal;
     }
 
-    private static int envInt(String name, int defaultVal) {
-        String val = System.getenv(name);
+    private static int envInt(String name, int defaultVal, Function<String, String> envLookup) {
+        String val = envLookup.apply(name);
         if (val != null && !val.isEmpty()) {
             try { return Integer.parseInt(val); } catch (NumberFormatException ignored) {}
         }
         return defaultVal;
     }
 
-    private static double envDouble(String name, double defaultVal) {
-        String val = System.getenv(name);
+    private static double envDouble(String name, double defaultVal, Function<String, String> envLookup) {
+        String val = envLookup.apply(name);
         if (val != null && !val.isEmpty()) {
             try { return Double.parseDouble(val); } catch (NumberFormatException ignored) {}
         }
@@ -538,8 +525,8 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
         return defaultVal;
     }
 
-    private static boolean envBool(String name, boolean defaultVal) {
-        String val = System.getenv(name);
+    private static boolean envBool(String name, boolean defaultVal, Function<String, String> envLookup) {
+        String val = envLookup.apply(name);
         if (val != null && !val.isEmpty()) return Boolean.parseBoolean(val);
         return defaultVal;
     }
@@ -547,19 +534,19 @@ public class AppConfig implements LlmConfig, RetrievalConfig, DocumentConfig, Se
     // ========== Getters ==========
 
     /** @return DeepSeek API Key */
-    public String getApiKey() { return apiKey; }
+    @Override public String getApiKey() { return llm.getApiKey(); }
     /** @return DeepSeek API 基础地址 */
-    public String getBaseUrl() { return baseUrl; }
+    @Override public String getBaseUrl() { return llm.getBaseUrl(); }
     /** @return 模型名称 */
-    public String getModelName() { return modelName; }
+    @Override public String getModelName() { return llm.getModelName(); }
     /** @return 系统提示词 */
-    public String getSystemPrompt() { return systemPrompt; }
+    @Override public String getSystemPrompt() { return llm.getSystemPrompt(); }
     /** @return 模型温度参数（0~1） */
-    public double getTemperature() { return temperature; }
+    @Override public double getTemperature() { return llm.getTemperature(); }
     /** @return 最大输出 Token 数 */
-    public int getMaxTokens() { return maxTokens; }
+    @Override public int getMaxTokens() { return llm.getMaxTokens(); }
     /** @return API 超时秒数 */
-    public int getTimeoutSeconds() { return timeoutSeconds; }
+    @Override public int getTimeoutSeconds() { return llm.getTimeoutSeconds(); }
     /** @return 检索返回的最大结果数 */
     public int getMaxResults() { return maxResults; }
     /** @return 检索最低相似度阈值（0~1） */

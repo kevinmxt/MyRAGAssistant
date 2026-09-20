@@ -7,6 +7,9 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import me.maxt.rag.web.config.AppConfig;
+import me.maxt.rag.web.config.EnvCheckConfig;
+import me.maxt.rag.web.config.LlmConfig;
+import me.maxt.rag.web.config.RecallConfig;
 import me.maxt.rag.web.controller.ChatController;
 import me.maxt.rag.web.controller.DocumentController;
 import me.maxt.rag.web.controller.EnvironmentController;
@@ -88,9 +91,11 @@ public class WebApplication {
 
     public WebApplication(AppConfig config) {
         this.config = config;
+        LlmConfig llm = config.llm();
+        RecallConfig recall = config.recall();
 
         // 向量库会话（构造零 I/O，出生即 DEGRADED；MilvusChecker 委托其探针）
-        this.milvusSession = new MilvusSession(config, new RealMilvusConnector());
+        this.milvusSession = new MilvusSession(config.milvus(), new RealMilvusConnector());
 
         // 精排制品：ONNX 三件套
         ModelArtifact rerankerArtifact = new ModelArtifact("reranker",
@@ -98,7 +103,7 @@ public class WebApplication {
                 Map.of("model.onnx", "onnx/model.onnx",
                        "model.onnx_data", "onnx/model.onnx_data",
                        "tokenizer.json", "tokenizer.json"),
-                Path.of(config.getRerankModelPath()));
+                Path.of(config.rerank().getRerankModelPath()));
         // 嵌入制品：sentence-transformers 完整清单（pytorch_model.bin 与 model.safetensors 权重重复，刻意排除）
         ModelArtifact embeddingArtifact = new ModelArtifact("embedding",
                 "BAAI/bge-small-zh-v1.5",
@@ -113,39 +118,40 @@ public class WebApplication {
                         Map.entry("tokenizer_config.json", "tokenizer_config.json"),
                         Map.entry("vocab.txt", "vocab.txt"),
                         Map.entry("1_Pooling/config.json", "1_Pooling/config.json")),
-                Path.of(config.getLightRagEmbeddingModelPath()));
+                Path.of(recall.getLightRagEmbeddingModelPath()));
         // 模型仓库（镜像链：配置镜像优先，内置 hf-mirror / huggingface 兜底；
         // 构造期注册两制品，state() 不依赖 ensurePresent 先发生——autoDownload=false 或环境检测先于下载线程时仍能按文件现算）
         ModelRepository modelRepository = new HttpModelRepository(
-                List.of(config.getDownloadMirror(), "https://hf-mirror.com", "https://huggingface.co"),
+                List.of(config.model().getDownloadMirror(), "https://hf-mirror.com", "https://huggingface.co"),
                 rerankerArtifact, embeddingArtifact);
 
         // 精排器（构造仅加载已存在的模型，不下载；补文件靠下方下载线程/一键安装）
-        CrossEncoderReranker crossEncoderReranker = new CrossEncoderReranker(config);
+        CrossEncoderReranker crossEncoderReranker = new CrossEncoderReranker(config.rerank());
 
         // 环境检测（非阻塞后台启动，SSE 推送结果）
         ModelFileChecker modelFileChecker = new ModelFileChecker(modelRepository, rerankerArtifact, embeddingArtifact);
         modelFileChecker.setOnInstalled(crossEncoderReranker::loadIfPresent);
+        EnvCheckConfig envCheck = config.envCheck();
         List<DependencyChecker> checkers = List.of(
-                new PythonChecker(config, config.getLightRagPythonPath()),
-                new PipPackageChecker(config, config.getLightRagPythonPath()),
+                new PythonChecker(envCheck, recall.getLightRagPythonPath()),
+                new PipPackageChecker(envCheck, recall.getLightRagPythonPath()),
                 new MilvusChecker(milvusSession),
-                new PandocChecker(config),
-                new TesseractChecker(config),
+                new PandocChecker(envCheck),
+                new TesseractChecker(envCheck),
                 modelFileChecker);
-        this.environmentChecker = new EnvironmentChecker(config, checkers);
+        this.environmentChecker = new EnvironmentChecker(envCheck, checkers);
         this.environmentController = new EnvironmentController(environmentChecker);
         environmentChecker.run();
 
         // 共享依赖
         this.embeddingModel = new BgeSmallZhV15QuantizedEmbeddingModel();
         this.chatModel = OpenAiChatModel.builder()
-                .baseUrl(config.getBaseUrl())
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelName())
-                .temperature(config.getTemperature())
-                .maxTokens(config.getMaxTokens())
-                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                .baseUrl(llm.getBaseUrl())
+                .apiKey(llm.getApiKey())
+                .modelName(llm.getModelName())
+                .temperature(llm.getTemperature())
+                .maxTokens(llm.getMaxTokens())
+                .timeout(Duration.ofSeconds(llm.getTimeoutSeconds()))
                 .build();
 
         // 初始连接：探针快速失败，降级不阻塞启动
@@ -160,8 +166,8 @@ public class WebApplication {
         StructureAnalyzer structureAnalyzer = new StructureAnalyzer();
         SplitClassifier splitClassifier = new SplitClassifier();
         StructureSplitter structureSplitter = new StructureSplitter();
-        SemanticSplitter semanticSplitter = new SemanticSplitter(embeddingModel, config.getSemanticThreshold());
-        AgentRefiner agentRefiner = config.isAgentRefinerEnabled() ? new AgentRefiner(chatModel) : null;
+        SemanticSplitter semanticSplitter = new SemanticSplitter(embeddingModel, config.document().getSemanticThreshold());
+        AgentRefiner agentRefiner = config.document().isAgentRefinerEnabled() ? new AgentRefiner(chatModel) : null;
         ChunkEvaluator chunkEvaluator = new ChunkEvaluator();
 
         ChunkingPipeline chunkingPipeline = new ChunkingPipeline(
@@ -169,18 +175,18 @@ public class WebApplication {
                 structureSplitter, semanticSplitter, agentRefiner, chunkEvaluator);
 
         QueryRewriter queryRewriter = new QueryRewriter(chatModel, 100);
-        HyDEGenerator hydeGenerator = new HyDEGenerator(chatModel, config.getHydeMaxTokens());
+        HyDEGenerator hydeGenerator = new HyDEGenerator(chatModel, config.queryEnhancement().getHydeMaxTokens());
         QueryEnhancementRouter enhancementRouter = new QueryEnhancementRouter(
-                queryRewriter, hydeGenerator, chatModel, config);
+                queryRewriter, hydeGenerator, chatModel, config.queryEnhancement());
 
         // 知识图谱 — 独立于多路召回，始终初始化（非阻塞，失败降级不影响主流程）
         LightRagBridge lightRagBridge = new LightRagBridge(
-                config.getLightRagPythonPath(), config.getLightRagWorkingDir(),
-                config.getLightRagEmbeddingModelPath(), config.getLightRagQueryMode(),
-                config.getApiKey(), config.getBaseUrl(), config.getModelName());
+                recall.getLightRagPythonPath(), recall.getLightRagWorkingDir(),
+                recall.getLightRagEmbeddingModelPath(), recall.getLightRagQueryMode(),
+                llm.getApiKey(), llm.getBaseUrl(), llm.getModelName());
         Thread lightragInit = new Thread(() -> {
             // 嵌入模型前置下载（失败降级，LightRAG init 按自身逻辑继续失败降级）
-            if (config.isAutoDownload()) {
+            if (config.model().isAutoDownload()) {
                 try {
                     modelRepository.ensurePresent(embeddingArtifact);
                 } catch (ModelDownloadException e) {
@@ -193,7 +199,7 @@ public class WebApplication {
         lightragInit.setDaemon(true);
         lightragInit.start();
         KnowledgeGraphService kgService = new KnowledgeGraphService(
-                config, storeManager, milvusSession::nativeClient, lightRagBridge);
+                recall, storeManager, milvusSession::nativeClient, lightRagBridge);
         KnowledgeGraphController kgController = new KnowledgeGraphController(kgService);
 
         // 多路召回：总是构造（是否启用由 RecallConfig.isMultiRecallEnabled 表达）
@@ -201,11 +207,11 @@ public class WebApplication {
         registry.put("dense", new DenseRecallStrategy(storeManager, embeddingModel));
         if (milvusSession.nativeClient() != null) {
             registry.put("sparse", new SparseRecallStrategy(
-                    milvusSession::nativeClient, config.getMilvusCollectionName()));
+                    milvusSession::nativeClient, config.milvus().getMilvusCollectionName()));
         }
         registry.put("graph", new GraphRecallStrategy(kgService, lightRagBridge,
-                config.getLightRagQueryMode()));
-        this.multiRecallRouter = new MultiRecallRouter(config, registry);
+                recall.getLightRagQueryMode()));
+        this.multiRecallRouter = new MultiRecallRouter(recall, registry);
 
         this.kgService = kgService;
         this.kgController = kgController;
@@ -213,7 +219,7 @@ public class WebApplication {
         this.reranker = crossEncoderReranker;
 
         // 精排模型：autoDownload 时后台线程下载完成后幂等加载（失败降级跳过精排）；否则维持构造时本地加载
-        if (config.isAutoDownload()) {
+        if (config.model().isAutoDownload()) {
             Thread rerankerDownload = new Thread(() -> {
                 try {
                     modelRepository.ensurePresent(rerankerArtifact);
@@ -230,19 +236,19 @@ public class WebApplication {
 
         // 检索管线（唯一事实源）+ 对话门面
         RetrievalPipeline retrievalPipeline = new RetrievalPipeline(new RetrievalPipeline.Deps(
-                storeManager, embeddingModel, config,
-                enhancementRouter, config,
-                multiRecallRouter, config,
-                crossEncoderReranker, config));
-        this.ragService = new RAGService(retrievalPipeline, chatModel, config);
+                storeManager, embeddingModel, config.retrieval(),
+                enhancementRouter, config.queryEnhancement(),
+                multiRecallRouter, config.recall(),
+                crossEncoderReranker, config.rerank()));
+        this.ragService = new RAGService(retrievalPipeline, chatModel, config.retrieval());
 
         // ContextualEnricher：嵌入前用 LLM 为每个 chunk 添加上下文
         ContextualEnricher contextualEnricher = new ContextualEnricher();
 
         this.documentService = new DocumentService(
                 storeManager, embeddingModel,
-                config.getChunkSize(), config.getChunkOverlap(),
-                config.getSupportedFileExtensions(),
+                config.document().getChunkSize(), config.document().getChunkOverlap(),
+                config.document().getSupportedFileExtensions(),
                 chunkingPipeline, contextualEnricher);
 
         // 控制器
@@ -345,9 +351,9 @@ public class WebApplication {
 
     /** 启动后自动摄入默认文档目录（如目录存在）。 */
     public void autoIngestIfNeeded() {
-        File defaultDocDir = new File(config.getDocumentDir());
+        File defaultDocDir = new File(config.document().getDocumentDir());
         if (defaultDocDir.exists() && defaultDocDir.isDirectory()) {
-            documentService.ingestDirectory(config.getDocumentDir());
+            documentService.ingestDirectory(config.document().getDocumentDir());
         }
     }
 

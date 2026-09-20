@@ -69,7 +69,7 @@ class MultiRecallRouterIT {
 
     @Test
     void shouldFallbackWhenOnlyDenseAvailable() {
-        RecallConfig config = AppConfig.load();
+        RecallConfig config = AppConfig.load().recall();
 
         // 只注册 dense，验证路由编排逻辑
         MultiRecallRouter router = new MultiRecallRouter(config,
@@ -81,7 +81,7 @@ class MultiRecallRouterIT {
 
     @Test
     void shouldSkipNonExistentStrategies() {
-        RecallConfig config = AppConfig.load();
+        RecallConfig config = AppConfig.load().recall();
         MultiRecallRouter router = new MultiRecallRouter(config, Map.of());
 
         // 请求不存在的策略，应该安全返回空
@@ -92,7 +92,7 @@ class MultiRecallRouterIT {
 
     @Test
     void shouldDegradeGracefullyWhenStrategyFails() {
-        RecallConfig config = AppConfig.load();
+        RecallConfig config = AppConfig.load().recall();
         MultiRecallRouter router = new MultiRecallRouter(config,
                 Map.of("dense", denseWithResult(), "sparse", brokenSparse()));
 

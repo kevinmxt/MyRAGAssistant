@@ -71,11 +71,11 @@ class EvaluationTest {
 
         // 共享组件（无状态，可在各格式间复用）
         DatasetLoader datasetLoader = new DatasetLoader();
-        RetrievalEvaluator retrievalEvaluator = new RetrievalEvaluator(appConfig);
+        RetrievalEvaluator retrievalEvaluator = new RetrievalEvaluator(appConfig.evaluation());
         AnswerQualityEvaluator answerQualityEvaluator = new AnswerQualityEvaluator(chatModel);
-        BaselineManager baselineManager = new BaselineManager(appConfig);
+        BaselineManager baselineManager = new BaselineManager(appConfig.evaluation());
 
-        List<String> formats = appConfig.getEvaluationFormats();
+        List<String> formats = appConfig.evaluation().getEvaluationFormats();
         if (formatFilter != null && !formatFilter.isBlank()) {
             formats = List.of(formatFilter);
         }
@@ -95,14 +95,14 @@ class EvaluationTest {
             when(unavailableReranker.isAvailable()).thenReturn(false);
             MultiRecallRouter emptyRouter = new MultiRecallRouter(disabledRecall, java.util.Map.of());
             RetrievalPipeline retrievalPipeline = new RetrievalPipeline(new RetrievalPipeline.Deps(
-                    storeManager, embeddingModel, appConfig,
+                    storeManager, embeddingModel, appConfig.retrieval(),
                     mock(QueryEnhancementRouter.class), disabledEnh,
                     emptyRouter, disabledRecall,
-                    unavailableReranker, appConfig));
-            RAGService ragService = new RAGService(retrievalPipeline, chatModel, appConfig);
-            KnowledgeBaseSeeder seeder = new KnowledgeBaseSeeder(storeManager, embeddingModel, appConfig, null);
+                    unavailableReranker, appConfig.rerank()));
+            RAGService ragService = new RAGService(retrievalPipeline, chatModel, appConfig.retrieval());
+            KnowledgeBaseSeeder seeder = new KnowledgeBaseSeeder(storeManager, embeddingModel, appConfig.document(), null);
 
-            EvaluationPipeline pipeline = new EvaluationPipeline(appConfig, datasetLoader, seeder,
+            EvaluationPipeline pipeline = new EvaluationPipeline(appConfig.evaluation(), datasetLoader, seeder,
                     retrievalEvaluator, answerQualityEvaluator, baselineManager, ragService,
                     retrievalPipeline);
 

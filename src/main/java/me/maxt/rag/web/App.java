@@ -24,18 +24,18 @@ public class App {
      */
     public static void main(String[] args) {
         AppConfig config = AppConfig.load();
-        log.info("Starting RAG Web Application on port {}", config.getPort());
+        log.info("Starting RAG Web Application on port {}", config.server().getPort());
 
         WebApplication webApp = new WebApplication(config);
         webApp.autoIngestIfNeeded();
 
-        Javalin server = webApp.createJavalin().start(config.getPort());
+        Javalin server = webApp.createJavalin().start(config.server().getPort());
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
             server.stop();
         }));
 
-        log.info("Application started at http://localhost:{}", config.getPort());
+        log.info("Application started at http://localhost:{}", config.server().getPort());
     }
 }

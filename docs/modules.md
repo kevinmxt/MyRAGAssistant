@@ -2,7 +2,7 @@
 
 | 模块 | 包路径 | 职责 |
 |------|--------|------|
-| 配置 | `config/` | AppConfig 实现 11 个配置接口（Llm / Retrieval / Document / Server / QueryEnhancement / Milvus / Recall / Rerank / Evaluation / EnvCheck / Model） |
+| 配置 | `config/` | ConfigBinder 反射绑定器 + @Key 注解（每键一处声明 json 路径/环境变量/默认值，优先级链 默认→config.json→环境变量）+ 11 个配置节 record（组件 getter 命名，直接 implements 对应 Config 接口）+ AppConfig 纯容器（load() 装配，节访问器取用） |
 | 文档服务 | `service/DocumentService` | 文档摄入、目录浏览、文件列表 |
 | 向量库会话 | `service/vector/MilvusSession` | 向量存储连接生命周期：探针/建连/降级/重连，DEGRADED↔CONNECTED 原子切换（换 store + 重建索引）；消费者经 `nativeClient()` 拉取当前客户端，重连后永不过期 |
 | 向量存储门面 | `service/EmbeddingStoreManager` | 经 Supplier 解析当前活跃 store，维护文档元数据索引；存储无关，不含连接逻辑 |

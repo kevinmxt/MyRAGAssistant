@@ -16,7 +16,13 @@
     "dir": "./documents",
     "chunkSize": 300,
     "chunkOverlap": 0,
-    "supportedExtensions": [".txt", ".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".md", ".html", ".csv", ".json", ".xlsx", ".pptx"]
+    "supportedExtensions": [".txt", ".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".md", ".html", ".csv", ".json", ".xlsx", ".pptx"],
+    "chunking": {
+      "mode": "auto",
+      "semanticThreshold": 0.6,
+      "enableAgentRefiner": false,
+      "maxChunkSize": 2000
+    }
   },
   "chat": {
     "memorySize": 10
@@ -24,12 +30,14 @@
   "server": {
     "port": 8080
   },
+  "store": {
+    "filePath": "./data/embedding-store.json"
+  },
   "milvus": {
     "host": "localhost",
     "port": 19530,
     "collectionName": "rag_knowledge_base",
-    "dimension": 512,
-    "consistencyLevel": "STRONG"
+    "dimension": 512
   },
   "queryEnhancement": {
     "enabled": true,

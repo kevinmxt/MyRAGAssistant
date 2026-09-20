@@ -40,6 +40,7 @@ build/
 .DS_Store
 models/
 
-### Claude Code worktrees / SDD 工作区 ###
+### Claude Code worktrees / SDD 工作区 / Matt 流本地票据 ###
 .claude/worktrees/
 .superpowers/
+.scratch/
